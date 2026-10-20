@@ -773,6 +773,9 @@ class ExperimentRunner:
                             subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
                             print(f"  [warmup-done] builds={warmups}")
 
+                    # Settle after warm-up builds to allow post-build suppression tail (+0.3s) to expire
+                    time.sleep(1.0)
+
                     # Snapshot DB row IDs at the start of measured workload (Item 3b)
                     min_pred_id = 0
                     min_res_id = 0
@@ -844,12 +847,12 @@ class ExperimentRunner:
                                 with sqlite3.connect(db_path) as conn:
                                     conn.row_factory = sqlite3.Row
                                     cur = conn.cursor()
-                                    cur.execute("SELECT * FROM builds WHERE id > ? ORDER BY id DESC LIMIT 1", (min_build_id,))
+                                    cur.execute("SELECT * FROM builds WHERE id > ? ORDER BY id ASC LIMIT 1", (min_build_id,))
                                     b_row = cur.fetchone()
                                     if b_row:
                                         b_dict = dict(b_row)
                                         min_build_id = max(min_build_id, b_dict.get("id", min_build_id))
-                                    cur.execute("SELECT * FROM reservations WHERE rowid > ? ORDER BY rowid DESC LIMIT 1", (min_res_id,))
+                                    cur.execute("SELECT rowid, * FROM reservations WHERE rowid > ? ORDER BY rowid ASC LIMIT 1", (min_res_id,))
                                     r_row = cur.fetchone()
                                     if r_row:
                                         r_dict = dict(r_row)
@@ -860,7 +863,7 @@ class ExperimentRunner:
                                     if pred_id_to_fetch:
                                         cur.execute("SELECT * FROM predictions WHERE id = ?", (pred_id_to_fetch,))
                                     else:
-                                        cur.execute("SELECT * FROM predictions WHERE id > ? ORDER BY id DESC LIMIT 1", (min_pred_id,))
+                                        cur.execute("SELECT * FROM predictions WHERE id > ? ORDER BY id ASC LIMIT 1", (min_pred_id,))
                                     p_row = cur.fetchone()
                                     if p_row:
                                         p_dict = dict(p_row)
@@ -948,6 +951,10 @@ class ExperimentRunner:
                             }
                             jsonl_fp.write(json.dumps(record) + "\n")
                             jsonl_fp.flush()
+
+                            # Inter-build gap to allow post-build suppression tail (+0.3s) to expire
+                            if b_idx_in_block < num_items - 1:
+                                time.sleep(1.0)
 
                 finally:
                     t_block_wall = max(0.001, time.monotonic() - t_block_start)

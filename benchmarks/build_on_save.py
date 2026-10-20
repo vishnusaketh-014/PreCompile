@@ -81,7 +81,7 @@ def run_developer_simulation(
     try:
         for i in range(1, cycles + 1):
             # 1. Edit source file via atomic temp-file-plus-rename (non-growing toggle)
-            marker_toggle = i % 2
+            marker_toggle = (int(time.time() * 1000) + i) % 1000000
             modified_content = f"{base_text}\n/* build_on_save_marker: {marker_toggle} */\n"
             atomic_save(target_file, modified_content)
             t_save = time.time()
