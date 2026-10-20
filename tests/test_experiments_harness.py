@@ -16,6 +16,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -297,6 +298,77 @@ class TestExperimentHarness(unittest.TestCase):
 
         self.assertEqual(idle_c2["unboosted_count"], 0)
         self.assertEqual(idle_c2["abstained_count"], 1)
+
+    def test_pilot3_style_flag_semantics_and_holdouts(self) -> None:
+        """Step 11b Part A.2: Verify pilot-3 style closed gate records are labelled abstained (not unboosted)."""
+        jsonl_path = self.temp_dir / "pilot3_flags_test.jsonl"
+        records = []
+        # 5 builds of c2-full where confidence gate was closed (Pilot-3 condition)
+        for i in range(5):
+            records.append({
+                "tier": "pilot", "scenario": "A", "load_level": "high", "condition": "c2-full",
+                "block_build_index": i, "build_index": i + 1, "is_warmup": False,
+                "duration_wall_s": 8.2 + (i * 0.05), "cgroup_cpu_share": None,
+                "claimed": False, "res_id": None, "classification": "abstained",
+                "unboosted": False, "abstained": True, "is_holdout": False,
+                "decision": "abstain_confidence", "unboosted_reason": "abstained (abstain_confidence)",
+            })
+        # 1 holdout build
+        records.append({
+            "tier": "pilot", "scenario": "A", "load_level": "high", "condition": "c2-full",
+            "block_build_index": 5, "build_index": 6, "is_warmup": False,
+            "duration_wall_s": 8.3, "cgroup_cpu_share": None,
+            "claimed": False, "res_id": None, "classification": "holdout",
+            "unboosted": False, "abstained": False, "is_holdout": True,
+            "decision": "holdout", "unboosted_reason": "holdout",
+        })
+        # 1 armed but missed build -> unboosted
+        records.append({
+            "tier": "pilot", "scenario": "A", "load_level": "high", "condition": "c2-full",
+            "block_build_index": 6, "build_index": 7, "is_warmup": False,
+            "duration_wall_s": 8.1, "cgroup_cpu_share": None,
+            "claimed": False, "res_id": "res-test", "classification": "unboosted",
+            "unboosted": True, "abstained": False, "is_holdout": False,
+            "decision": "would_arm", "unboosted_reason": "reservation expired before claim (missed)",
+        })
+
+        with open(jsonl_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r) + "\n")
+
+        analysis = analyze_experiments(jsonl_path, output_dir=self.temp_dir)
+        m = next(item for item in analysis["metrics_summary"] if item["condition"] == "c2-full")
+
+        # Crucial verification: exactly 5 abstained, 1 holdout, 1 unboosted
+        self.assertEqual(m["abstained_count"], 5)
+        self.assertEqual(m["holdout_count"], 1)
+        self.assertEqual(m["unboosted_count"], 1)
+
+    def test_read_gate_state_from_db(self) -> None:
+        """Step 11b Part A.1: Verify reading gate state directly from cell database."""
+        from benchmarks.run_experiments import read_gate_state_from_db
+        from precompile.store import DataStore
+
+        db_path = self.temp_dir / "gate_eval_test.db"
+        # 1. Empty DB: gate is closed
+        can_arm, n, scored, rate, reasons = read_gate_state_from_db(db_path, project_id="heavy")
+        self.assertFalse(can_arm)
+        self.assertEqual(n, 0)
+        self.assertEqual(scored, 0)
+
+        # 2. Seeded DB with n >= 5 and scored >= 5 and high hit rate -> can_arm is True
+        with DataStore(db_path=db_path) as store:
+            store.add_project("heavy", str(self.temp_dir), "gcc,make")
+            store.save_model_state(("heavy", "source", "default"), n=12, mean=1.8, var=0.01)
+            for i in range(8):
+                pid = store.record_prediction("heavy", "source", "default", time.time(), 0.5, 3.0, armed=True, holdout=False)
+                store.score_prediction(pid, outcome="hit", observed_delay_s=1.8)
+
+        can_arm, n, scored, rate, reasons = read_gate_state_from_db(db_path, project_id="heavy")
+        self.assertTrue(can_arm)
+        self.assertEqual(n, 12)
+        self.assertEqual(scored, 8)
+        self.assertEqual(rate, 1.0)
 
     def test_dirty_tree_refusal(self) -> None:
         """Test that runner refuses non-pilot Tier 1/2 runs when working tree is dirty unless --force."""

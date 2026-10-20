@@ -220,6 +220,68 @@ def generate_balanced_blocks(conditions: List[str], cycles: int) -> List[Tuple[i
     return blocks
 
 
+def read_gate_state_from_db(db_path: Path, project_id: str = "heavy") -> Tuple[bool, int, int, float, List[str]]:
+    """Reads model and prediction state from cell DB and evaluates ConfidenceGate.
+
+    Returns:
+        (can_arm, n_samples, scored_predictions, hit_rate, reasons)
+    """
+    if not db_path.exists():
+        return False, 0, 0, 0.0, ["DB file does not exist"]
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            # 1. Delay samples / model state
+            cur.execute("SELECT n, mean, var FROM model_state WHERE project_id = ?", (project_id,))
+            row = cur.fetchone()
+            if row:
+                n, mean, var = int(row[0]), float(row[1]), float(row[2])
+            else:
+                cur.execute(
+                    "SELECT count(*), coalesce(avg(delay_seconds), 0.0) FROM delay_samples WHERE project_id = ? AND accepted = 1",
+                    (project_id,)
+                )
+                cnt_row = cur.fetchone()
+                n = int(cnt_row[0]) if cnt_row else 0
+                mean = float(cnt_row[1]) if cnt_row else 0.0
+                var = 0.0
+
+            # 2. Scored predictions (last 10)
+            cur.execute(
+                "SELECT outcome FROM predictions WHERE project_id = ? AND outcome IN ('hit', 'miss') ORDER BY id DESC LIMIT 10",
+                (project_id,)
+            )
+            pred_rows = cur.fetchall()
+            scored_total = len(pred_rows)
+            hits = sum(1 for (out,) in pred_rows if out == "hit")
+            rate = (hits / scored_total) if scored_total > 0 else 0.0
+
+            # 3. Evaluate ConfidenceGate
+            from precompile.gates import ConfidenceGate
+            from precompile.config import PredictorConfig
+            cfg = PredictorConfig(strict_min_predictions_to_arm=True)
+            gate = ConfidenceGate(config=cfg)
+
+            import math
+            sigma = math.sqrt(var) if var >= 0 else 0.0
+            cv = (sigma / mean) if mean > 0 else 0.0
+
+            class _ModelStats:
+                pass
+            m = _ModelStats()
+            m.n = n
+            m.sample_count = n
+            m.mean = mean
+            m.sigma = sigma
+            m.cv = cv
+
+            res = gate.evaluate(m, hit_stats=(hits, scored_total, rate))
+            return res.can_arm, n, scored_total, rate, res.reasons
+    except Exception as e:
+        return False, 0, 0, 0.0, [f"Error reading DB: {e}"]
+
+
 class ExperimentRunner:
     def __init__(
         self,
@@ -307,8 +369,8 @@ class ExperimentRunner:
         plan: List[Dict[str, Any]] = []
 
         if self.pilot:
-            # Validation Pilot 3 plan as pre-registered in benchmarks/EXPERIMENT_PLAN.md (v1.2):
-            # 1. Scenario A at high load for C0, C1, C2, C3 (1 block of 5 builds each, with warm-ups)
+            # Validation Pilot 3 plan as pre-registered in benchmarks/EXPERIMENT_PLAN.md (v1.3):
+            # 1. Scenario A at high load for C0, C1, C2, C3 (1 block of 5 builds each, with warm-until-armed)
             for cond in ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]:
                 plan.append({
                     "tier": "pilot",
@@ -317,7 +379,7 @@ class ExperimentRunner:
                     "condition": cond,
                     "cycle": 1,
                     "builds_per_block": 5,
-                    "warmups": 2,
+                    "warmups": 12,
                     "mode": "auto",
                 })
 
@@ -387,7 +449,7 @@ class ExperimentRunner:
                     "condition": cond,
                     "cycle": cy,
                     "builds_per_block": 10,
-                    "warmups": 0,
+                    "warmups": self.warmup_builds if cy == 1 else 0,
                     "mode": "manual-irregular",
                 })
 
@@ -402,6 +464,57 @@ class ExperimentRunner:
                     "builds_per_block": 50,
                     "warmups": 0,
                     "mode": "save-only",
+                })
+
+        if self.tier in ("3", "all"):
+            # Tier 3 (Ablations): placed where each ablation matters
+            # A2 (no confidence gate) on Scenario B at moderate load: 30 builds (3 blocks of 10)
+            for cy in range(1, 4):
+                plan.append({
+                    "tier": "3",
+                    "scenario": "B",
+                    "load_level": "moderate",
+                    "condition": "a2-noconf",
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": self.warmup_builds if cy == 1 else 0,
+                    "mode": "manual-irregular",
+                })
+            # A3 (no contention gate) on Scenario A at idle: 50 builds (5 blocks of 10)
+            for cy in range(1, 6):
+                plan.append({
+                    "tier": "3",
+                    "scenario": "A",
+                    "load_level": "idle",
+                    "condition": "a3-nocont",
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": self.warmup_builds if cy == 1 else 0,
+                    "mode": "auto",
+                })
+            # A4 (fixed window) on Scenario A at high load: 50 builds (5 blocks of 10)
+            for cy in range(1, 6):
+                plan.append({
+                    "tier": "3",
+                    "scenario": "A",
+                    "load_level": "high",
+                    "condition": "a4-fixedwin",
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": self.warmup_builds if cy == 1 else 0,
+                    "mode": "auto",
+                })
+            # A5 (no holdout) on Scenario A at high load: 50 builds (5 blocks of 10)
+            for cy in range(1, 6):
+                plan.append({
+                    "tier": "3",
+                    "scenario": "A",
+                    "load_level": "high",
+                    "condition": "a5-noholdout",
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": self.warmup_builds if cy == 1 else 0,
+                    "mode": "auto",
                 })
 
         return plan
@@ -592,20 +705,73 @@ class ExperimentRunner:
                 t_block_start = time.monotonic()
 
                 try:
-                    # 4. Warm-ups (use cell's own distribution; counted separately and excluded from measured results)
+                    # 4. Warm-ups (WARM-UNTIL-ARMED Protocol per Step 11b Part A.1)
                     if warmups > 0:
-                        print(f"  Running {warmups} warm-up builds (mode={sim_mode})...")
-                        sim_cmd = [
-                            sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
-                            "--project", str(self.project_dir),
-                            "--cycles", str(warmups),
-                            "--edit-file", "big.c",
-                            "--delay-mean", "1.8",
-                            "--delay-jitter", "0.1",
-                            "--mode", sim_mode,
-                            "--cpuset", self.cpuset,
-                        ]
-                        subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                        if sc == "B":
+                            print(f"  Running 12 warm-up builds with irregular delays (mode=manual-irregular)...")
+                            sim_cmd = [
+                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                "--project", str(self.project_dir),
+                                "--cycles", "12",
+                                "--edit-file", "big.c",
+                                "--delay-mean", "1.8",
+                                "--delay-jitter", "0.1",
+                                "--mode", "manual-irregular",
+                                "--cpuset", self.cpuset,
+                            ]
+                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
+                            print(f"  [warmup-done] Scenario B: builds=12, gate_open={can_arm}, n={n_samp}, scored={scored}, hit_rate={h_rate:.2f}, reasons={reasons}")
+                        elif cn in ("c2-full", "a2-noconf", "a3-nocont", "a4-fixedwin", "a5-noholdout"):
+                            print(f"  Running initial 12 warm-up builds (mode={sim_mode})...")
+                            sim_cmd = [
+                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                "--project", str(self.project_dir),
+                                "--cycles", "12",
+                                "--edit-file", "big.c",
+                                "--delay-mean", "1.8",
+                                "--delay-jitter", "0.1",
+                                "--mode", sim_mode,
+                                "--cpuset", self.cpuset,
+                            ]
+                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            warmup_count = 12
+                            can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
+                            while warmup_count < 30 and not (can_arm and n_samp >= 5 and scored >= 5):
+                                print(f"  Gate not open yet (can_arm={can_arm}, n={n_samp}, scored={scored}). Running extra warm-up build #{warmup_count+1}...")
+                                sim_single = [
+                                    sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                    "--project", str(self.project_dir),
+                                    "--cycles", "1",
+                                    "--edit-file", "big.c",
+                                    "--delay-mean", "1.8",
+                                    "--delay-jitter", "0.1",
+                                    "--mode", sim_mode,
+                                    "--cpuset", self.cpuset,
+                                ]
+                                subprocess.run(sim_single, timeout=60, check=True, capture_output=True)
+                                warmup_count += 1
+                                can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
+
+                            print(f"  [warmup-done] builds={warmup_count}, gate_open={can_arm}, n={n_samp}, scored={scored}, hit_rate={h_rate:.2f}, reasons={reasons}")
+                            if not (can_arm and n_samp >= 5 and scored >= 5):
+                                raise RuntimeError(
+                                    f"Abort cell ({sc}, {ld}, {cn}): Confidence gate still closed after {warmup_count} warm-up builds. Reasons: {reasons}"
+                                )
+                        else:
+                            print(f"  Running {warmups} warm-up builds (mode={sim_mode})...")
+                            sim_cmd = [
+                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                "--project", str(self.project_dir),
+                                "--cycles", str(warmups),
+                                "--edit-file", "big.c",
+                                "--delay-mean", "1.8",
+                                "--delay-jitter", "0.1",
+                                "--mode", sim_mode,
+                                "--cpuset", self.cpuset,
+                            ]
+                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            print(f"  [warmup-done] builds={warmups}")
 
                     # Snapshot DB row IDs at the start of measured workload (Item 3b)
                     min_pred_id = 0
@@ -670,9 +836,10 @@ class ExperimentRunner:
                             if m_cpu:
                                 cpu_s = float(m_cpu.group(1))
 
-                            # Query SQLite DB for build and reservation records created during this build
+                            # Query SQLite DB for build, reservation, and prediction records created during this build
                             b_dict: Dict[str, Any] = {}
                             r_dict: Dict[str, Any] = {}
+                            p_dict: Dict[str, Any] = {}
                             if db_path.exists():
                                 with sqlite3.connect(db_path) as conn:
                                     conn.row_factory = sqlite3.Row
@@ -688,6 +855,17 @@ class ExperimentRunner:
                                         r_dict = dict(r_row)
                                         min_res_id = max(min_res_id, r_dict.get("rowid", min_res_id))
 
+                                    # Query associated prediction
+                                    pred_id_to_fetch = b_dict.get("prediction_id")
+                                    if pred_id_to_fetch:
+                                        cur.execute("SELECT * FROM predictions WHERE id = ?", (pred_id_to_fetch,))
+                                    else:
+                                        cur.execute("SELECT * FROM predictions WHERE id > ? ORDER BY id DESC LIMIT 1", (min_pred_id,))
+                                    p_row = cur.fetchone()
+                                    if p_row:
+                                        p_dict = dict(p_row)
+                                        min_pred_id = max(min_pred_id, p_dict.get("id", min_pred_id))
+
                             daemon_dur = b_dict.get("duration_s")
                             wall_daemon_diff = abs(build_wall_s - daemon_dur) if daemon_dur is not None else None
 
@@ -695,33 +873,48 @@ class ExperimentRunner:
                             usage_usec = r_dict.get("cgroup_usage_usec")
                             cgroup_share = (usage_usec / (1e6 * build_wall_s)) if (usage_usec is not None and build_wall_s > 0) else None
 
-                            # Unboosted vs Abstained detection (Item 4)
+                            # Flag classification per Step 11b Part A.2:
+                            # holdout -> "holdout"
+                            # gate closed or abstained (confidence, contention, cost, budget) -> "abstained"
+                            # armed but not claimed or claimed late or cpu_share < 0.5 -> "unboosted"
+                            # claimed with share >= 0.5 -> "boosted"
+                            # baseline C0 -> "observed"
                             unboosted = False
                             abstained = False
+                            is_holdout = False
+                            classification = "observed"
                             unboosted_reason: Optional[str] = None
-                            if cn in ("c1-reactive", "c2-full", "c3-static", "a1-reactive", "a2-noconf", "a3-nocont", "a4-fixedwin", "a5-noholdout"):
+                            p_decision = p_dict.get("decision", "")
+
+                            if cn == "c0-baseline":
+                                classification = "observed"
+                            elif b_dict.get("condition") == "holdout" or p_dict.get("holdout") == 1 or p_decision == "holdout":
+                                classification = "holdout"
+                                is_holdout = True
+                                unboosted_reason = "holdout"
+                            elif not bool(r_dict.get("id")):
+                                # No reservation was armed -> gate abstained or closed
+                                classification = "abstained"
+                                abstained = True
+                                d_cause = p_decision if p_decision else ("no_contention" if ld == "idle" else "gate_closed")
+                                unboosted_reason = f"abstained ({d_cause})"
+                            else:
+                                # A reservation was armed
                                 is_claimed = bool(r_dict.get("claimed_pid"))
-                                is_holdout = (b_dict.get("condition") == "holdout")
-                                decision = b_dict.get("condition", "unknown")
-                                if is_holdout:
+                                if not is_claimed:
+                                    classification = "unboosted"
                                     unboosted = True
-                                    unboosted_reason = "holdout"
-                                elif is_claimed:
-                                    if cgroup_share is not None and cgroup_share < 0.50:
-                                        unboosted = True
-                                        unboosted_reason = f"cgroup throttling (share={cgroup_share*100:.1f}%)"
-                                    elif lat_s is not None and lat_s > 0.100:
-                                        unboosted = True
-                                        unboosted_reason = f"late claim ({lat_s*1000:.1f}ms)"
+                                    unboosted_reason = "reservation expired before claim (missed)"
+                                elif cgroup_share is not None and cgroup_share < 0.50:
+                                    classification = "unboosted"
+                                    unboosted = True
+                                    unboosted_reason = f"cgroup throttling (share={cgroup_share*100:.1f}%)"
+                                elif lat_s is not None and lat_s > 0.100:
+                                    classification = "unboosted"
+                                    unboosted = True
+                                    unboosted_reason = f"late claim ({lat_s*1000:.1f}ms)"
                                 else:
-                                    # Not claimed: check if boost was intended or if gate correctly abstained
-                                    if ld == "idle" or decision in ("unpredicted", "gate_closed", "abstained"):
-                                        abstained = True
-                                        unboosted = False
-                                        unboosted_reason = "not boosted (abstained)"
-                                    else:
-                                        unboosted = True
-                                        unboosted_reason = "no reservation / missed"
+                                    classification = "boosted"
 
                             record = {
                                 "timestamp": t_start_build,
@@ -741,13 +934,15 @@ class ExperimentRunner:
                                 "cpu_seconds": cpu_s,
                                 "contention_level": b_dict.get("contention_level", block_start_psi),
                                 "block_start_psi": block_start_psi,
-                                "decision": b_dict.get("condition", "observed" if cn == "c0-baseline" else "unknown"),
+                                "classification": classification,
+                                "decision": p_decision if p_decision else b_dict.get("condition", classification),
                                 "res_id": r_dict.get("id"),
                                 "claimed": bool(r_dict.get("claimed_pid")),
                                 "claim_latency_ms": (lat_s * 1000.0) if lat_s is not None else None,
                                 "cgroup_cpu_share": cgroup_share,
                                 "unboosted": unboosted,
                                 "abstained": abstained,
+                                "is_holdout": is_holdout,
                                 "unboosted_reason": unboosted_reason,
                                 "exit_code": res.returncode,
                             }
@@ -812,6 +1007,7 @@ class ExperimentRunner:
                 hit_rate: Optional[float] = None
                 false_res_rate: Optional[float] = None
                 missed_rate: Optional[float] = None
+                decision_counts: Dict[str, int] = {}
                 if db_path.exists():
                     try:
                         with sqlite3.connect(db_path) as conn:
@@ -854,6 +1050,13 @@ class ExperimentRunner:
                             )
                             n_b = cur.fetchone()[0]
                             missed_rate = (n_unpred / n_b) if n_b > 0 else None
+
+                            # Decision counts scoped to measured workload (Item 2)
+                            cur.execute(
+                                "SELECT coalesce(decision, 'unpredicted'), count(*) FROM predictions WHERE id > ? GROUP BY decision",
+                                (min_pred_id_start,)
+                            )
+                            decision_counts = {str(d): cnt for d, cnt in cur.fetchall()}
                     except Exception as e:
                         print(f"  [db-metrics-warning] Could not compute metrics from {db_path}: {e}", file=sys.stderr)
 
@@ -873,6 +1076,7 @@ class ExperimentRunner:
                     "hit_rate": hit_rate,
                     "false_res_rate": false_res_rate,
                     "missed_rate": missed_rate,
+                    "decision_counts": decision_counts,
                 }
                 block_fp.write(json.dumps(block_summary) + "\n")
                 block_fp.flush()
@@ -881,7 +1085,8 @@ class ExperimentRunner:
                 if thread_cpu_breakdown:
                     th_parts = [f"{comm}:{info['pct_core']:.2f}%" for comm, info in sorted(thread_cpu_breakdown.items())]
                     th_info = f" | Threads=[{', '.join(th_parts)}]"
-                print(f"  [block-summary] Wall={t_block_wall:.1f}s | DaemonCPU={daemon_cpu_pct:.2f}%{th_info} | BgRate={bg_cpu_rate:.2f} cpu/s | Scans/s={watcher_stats.get('scans_per_sec', 0.0):.1f}")
+                dec_info = f" | Decisions={decision_counts}" if decision_counts else ""
+                print(f"  [block-summary] Wall={t_block_wall:.1f}s | DaemonCPU={daemon_cpu_pct:.2f}%{th_info} | BgRate={bg_cpu_rate:.2f} cpu/s | Scans/s={watcher_stats.get('scans_per_sec', 0.0):.1f}{dec_info}")
 
                 # Check leftover cgroups
                 leftovers = check_leftover_cgroups()

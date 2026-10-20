@@ -147,11 +147,15 @@ def analyze_experiments(
         ]
         mean_share, _ = calc_mean_std(cpu_shares)
 
-        # Unboosted builds vs Abstained builds count (Item 4)
+        # Unboosted builds vs Abstained builds vs Holdout builds count (Item 4 & Step 11b Item 2)
         unboosted_count = sum(1 for r in recs if r.get("unboosted", False))
         abstained_count = sum(
             1 for r in recs
             if r.get("abstained", False) or "abstained" in str(r.get("unboosted_reason", ""))
+        )
+        holdout_count = sum(
+            1 for r in recs
+            if r.get("is_holdout", False) or r.get("classification") == "holdout" or r.get("decision") == "holdout"
         )
 
         metrics_summary.append({
@@ -172,6 +176,7 @@ def analyze_experiments(
             "mean_cgroup_share": mean_share if cpu_shares else None,
             "unboosted_count": unboosted_count,
             "abstained_count": abstained_count,
+            "holdout_count": holdout_count,
             "raw_durations": durations,
             "raw_steady_durations": steady_durs,
             "raw_latencies": claim_latencies,
@@ -286,11 +291,11 @@ def analyze_experiments(
         c["significant"] = adj_p_list[i] < 0.05
 
     # 1. Main Metrics Table
-    print("\n" + "=" * 138)
+    print("\n" + "=" * 148)
     print("PRECOMPILE EVALUATION SUMMARY: BUILD DURATIONS, LATENCIES & SYSTEM METRICS")
-    print("=" * 138)
-    print(f"| {'Tier':<6} | {'Scenario':<8} | {'Load':<8} | {'Condition':<12} | {'N':<4} | {'Med Wall':<9} | {'Ex-Idx0':<9} | {'Claims':<7} | {'Med Lat':<9} | {'Ex-Idx0 Lat':<11} | {'CPU Share':<9} | {'Unboosted':<9} | {'Abstained':<9} |")
-    print(f"|{'-'*8}|{'-'*10}|{'-'*10}|{'-'*14}|{'-'*6}|{'-'*11}|{'-'*11}|{'-'*9}|{'-'*11}|{'-'*13}|{'-'*11}|{'-'*11}|{'-'*11}|")
+    print("=" * 148)
+    print(f"| {'Tier':<6} | {'Scenario':<8} | {'Load':<8} | {'Condition':<12} | {'N':<4} | {'Med Wall':<9} | {'Ex-Idx0':<9} | {'Claims':<7} | {'Med Lat':<9} | {'Ex-Idx0 Lat':<11} | {'CPU Share':<9} | {'Unboosted':<9} | {'Abstained':<9} | {'Holdout':<7} |")
+    print(f"|{'-'*8}|{'-'*10}|{'-'*10}|{'-'*14}|{'-'*6}|{'-'*11}|{'-'*11}|{'-'*9}|{'-'*11}|{'-'*13}|{'-'*11}|{'-'*11}|{'-'*11}|{'-'*9}|")
     for m in metrics_summary:
         med_w = f"{m['med_wall_s']:.2f}s"
         med_st = f"{m['med_steady_wall_s']:.2f}s"
@@ -300,8 +305,9 @@ def analyze_experiments(
         share = f"{m['mean_cgroup_share']*100:.1f}%" if m['mean_cgroup_share'] is not None else "N/A"
         unb = f"{m['unboosted_count']}"
         abs_cnt = f"{m['abstained_count']}"
-        print(f"| {m['tier']:<6} | {m['scenario']:<8} | {m['load_level']:<8} | {m['condition']:<12} | {m['count']:<4} | {med_w:<9} | {med_st:<9} | {clm:<7} | {med_l:<9} | {med_lst:<11} | {share:<9} | {unb:<9} | {abs_cnt:<9} |")
-    print("=" * 138)
+        hld = f"{m.get('holdout_count', 0)}"
+        print(f"| {m['tier']:<6} | {m['scenario']:<8} | {m['load_level']:<8} | {m['condition']:<12} | {m['count']:<4} | {med_w:<9} | {med_st:<9} | {clm:<7} | {med_l:<9} | {med_lst:<11} | {share:<9} | {unb:<9} | {abs_cnt:<9} | {hld:<7} |")
+    print("=" * 148)
 
     # Cross-check of duration measurements (Item 1)
     diffs = [
@@ -348,13 +354,13 @@ def analyze_experiments(
                 print(f"| {sc:<8} | {ld:<8} | {'C2 Holdout':<14} | {len(hld_durs):<5} | {median(hld_durs):.2f}s{'':<11} | {m_hld:.2f}±{s_hld:.2f}s{'':<10} |")
         print("=" * 100)
 
-    # 3. Block-Level Metrics (Overhead, Background Impact, Precision)
+    # 3. Block-Level Metrics (Overhead, Background Impact, Precision, Decisions)
     if block_metrics:
-        print("\n" + "=" * 125)
-        print("BLOCK-LEVEL METRICS: MONITORING OVERHEAD, BACKGROUND IMPACT & PREDICTION PRECISION")
-        print("=" * 125)
-        print(f"| {'Blk':<3} | {'Scen':<5} | {'Load':<8} | {'Condition':<12} | {'Wall(s)':<8} | {'PSI(0)':<7} | {'DaemonCPU':<10} | {'Scans/s':<8} | {'Scan(ms)':<8} | {'BgRate(cpu/s)':<14} | {'Hit%':<6} | {'FalseRes%':<9} |")
-        print(f"|{'-'*5}|{'-'*7}|{'-'*10}|{'-'*14}|{'-'*10}|{'-'*9}|{'-'*12}|{'-'*10}|{'-'*10}|{'-'*16}|{'-'*8}|{'-'*11}|")
+        print("\n" + "=" * 148)
+        print("BLOCK-LEVEL METRICS: MONITORING OVERHEAD, BACKGROUND IMPACT, PREDICTION PRECISION & DECISIONS")
+        print("=" * 148)
+        print(f"| {'Blk':<3} | {'Scen':<5} | {'Load':<8} | {'Condition':<12} | {'Wall(s)':<8} | {'PSI(0)':<7} | {'DaemonCPU':<10} | {'Scans/s':<8} | {'Scan(ms)':<8} | {'BgRate(cpu/s)':<14} | {'Hit%':<6} | {'FalseRes%':<9} | {'Decisions':<22} |")
+        print(f"|{'-'*5}|{'-'*7}|{'-'*10}|{'-'*14}|{'-'*10}|{'-'*9}|{'-'*12}|{'-'*10}|{'-'*10}|{'-'*16}|{'-'*8}|{'-'*11}|{'-'*24}|")
         for b in block_metrics:
             b_i = b.get("block_index", 0)
             sc = b.get("scenario", "A")
@@ -369,8 +375,10 @@ def analyze_experiments(
             bg = f"{b.get('bg_cpu_rate', 0.0):.2f}"
             hit = f"{b.get('hit_rate', 0.0)*100:.0f}%" if b.get("hit_rate") is not None else "N/A"
             f_res = f"{b.get('false_res_rate', 0.0)*100:.0f}%" if b.get("false_res_rate") is not None else "N/A"
-            print(f"| {b_i:<3} | {sc:<5} | {ld:<8} | {cn:<12} | {wall:<8} | {psi0:<7} | {dcpu:<10} | {scans_s:<8} | {avg_s:<8} | {bg:<14} | {hit:<6} | {f_res:<9} |")
-        print("=" * 125)
+            dec_map = b.get("decision_counts", {})
+            dec_str = ", ".join(f"{k}:{v}" for k, v in sorted(dec_map.items())) if dec_map else "N/A"
+            print(f"| {b_i:<3} | {sc:<5} | {ld:<8} | {cn:<12} | {wall:<8} | {psi0:<7} | {dcpu:<10} | {scans_s:<8} | {avg_s:<8} | {bg:<14} | {hit:<6} | {f_res:<9} | {dec_str[:22]:<22} |")
+        print("=" * 148)
 
         # Print per-thread CPU table if thread_cpu_breakdown exists (Item 2a)
         has_threads = any(b.get("thread_cpu_breakdown") for b in block_metrics)
@@ -469,6 +477,28 @@ def analyze_experiments(
         print("No outlier builds (> 1.5x median) detected across all cells.")
     print("=" * 125)
 
+    # S5 per condition evaluation table (Step 11b Part A.3)
+    daemon_conds = sorted(list(set(b.get("condition") for b in block_metrics if b.get("condition") != "c0-baseline")))
+    if daemon_conds:
+        print("\n" + "=" * 115)
+        print("SUCCESS CRITERION S5: MONITORING OVERHEAD EVALUATION PER CONDITION")
+        print("Requirement: Requires BOTH Daemon CPU <= 1.0% AND Average Scan Time <= 1.5ms")
+        print("=" * 115)
+        print(f"| {'Condition':<16} | {'Mean CPU %':<12} | {'Max CPU %':<12} | {'Avg Scan (ms)':<14} | {'S5 Status':<10} | {'Notes':<35} |")
+        print(f"|{'-'*18}|{'-'*14}|{'-'*14}|{'-'*16}|{'-'*12}|{'-'*37}|")
+        for cn in daemon_conds:
+            b_list = [b for b in block_metrics if b.get("condition") == cn]
+            cpus = [b.get("daemon_cpu_pct", 0.0) for b in b_list]
+            scans = [b.get("watcher_stats", {}).get("avg_scan_ms", 0.0) for b in b_list if b.get("watcher_stats")]
+            mean_c = sum(cpus) / len(cpus) if cpus else 0.0
+            max_c = max(cpus) if cpus else 0.0
+            avg_s = sum(scans) / len(scans) if scans else 0.0
+            s5_cond_pass = (max_c <= 1.0) and (avg_s <= 1.5)
+            notes = "Primary Evaluation Condition (C2)" if cn == "c2-full" else "Alternative / Ablation"
+            status_str = "PASS" if s5_cond_pass else "FAIL"
+            print(f"| {cn:<16} | {mean_c:.2f}%{'':<6} | {max_c:.2f}%{'':<6} | {avg_s:.2f}ms{'':<7} | {status_str:<10} | {notes:<35} |")
+        print("=" * 115)
+
     # 6. Evaluation of Pre-Registered Success Criteria S1-S7
     print("\n" + "=" * 125)
     print("EVALUATION OF PRE-REGISTERED SUCCESS CRITERIA (S1 - S7)")
@@ -509,13 +539,13 @@ def analyze_experiments(
     f_res_b_str = f"B: {f_res_b*100:.1f}% false" if f_res_b is not None else "Scenario B: N/A"
     print(f"| {'S4: Precision on Irregular Work':<32} | {'Scen B false res <= 20%, Scen C arm <= 20%':<42} | {f_res_b_str[:24]:<24} | {'EVALUATED':<10} |")
 
-    # S5: Overhead (Item 2a: Requires BOTH daemon CPU <= 1.0% AND scan <= 1.5ms; FAIL if either exceeds)
+    # S5: Overhead (C2 Full is Primary - Item 2a & Step 11b Part A.3)
     c2_blocks = [b for b in block_metrics if b.get("condition") == "c2-full"]
     max_dcpu = max((b.get("daemon_cpu_pct", 0.0) for b in c2_blocks), default=0.0)
     max_scan = max((b.get("watcher_stats", {}).get("avg_scan_ms", 0.0) for b in c2_blocks), default=0.0)
     s5_pass = (max_dcpu <= 1.0) and (max_scan <= 1.5) if c2_blocks else False
     s5_obs = f"CPU={max_dcpu:.2f}%, Scan={max_scan:.2f}ms"
-    print(f"| {'S5: Monitoring Overhead':<32} | {'Daemon CPU <= 1.0%, Avg Scan <= 1.5ms':<42} | {s5_obs[:24]:<24} | {'PASS' if s5_pass else 'FAIL':<10} |")
+    print(f"| {'S5: Monitoring Overhead (C2)':<32} | {'Daemon CPU <= 1.0%, Avg Scan <= 1.5ms':<42} | {s5_obs[:24]:<24} | {'PASS' if s5_pass else 'FAIL':<10} |")
 
     # S6: Bounded Harm
     idle_c0 = next((m for m in metrics_summary if m["scenario"] == "A" and m["load_level"] == "idle" and m["condition"] == "c0-baseline"), None)
@@ -546,14 +576,14 @@ def analyze_experiments(
             writer.writerow([
                 "tier", "scenario", "load_level", "condition", "count", "med_wall_s", "med_steady_wall_s",
                 "mean_wall_s", "std_wall_s", "claims_count", "claim_rate", "med_claim_lat_ms",
-                "med_steady_lat_ms", "mean_claim_lat_ms", "mean_cgroup_share", "unboosted_count", "abstained_count",
+                "med_steady_lat_ms", "mean_claim_lat_ms", "mean_cgroup_share", "unboosted_count", "abstained_count", "holdout_count",
             ])
             for m in metrics_summary:
                 writer.writerow([
                     m["tier"], m["scenario"], m["load_level"], m["condition"], m["count"], m["med_wall_s"],
                     m["med_steady_wall_s"], m["mean_wall_s"], m["std_wall_s"], m["claims_count"],
                     m["claim_rate"], m["med_claim_lat_ms"], m["med_steady_lat_ms"],
-                    m["mean_claim_lat_ms"], m["mean_cgroup_share"], m["unboosted_count"], m["abstained_count"],
+                    m["mean_claim_lat_ms"], m["mean_cgroup_share"], m["unboosted_count"], m["abstained_count"], m.get("holdout_count", 0),
                 ])
         print(f"\nWrote metrics summary CSV: {metrics_csv}")
 
