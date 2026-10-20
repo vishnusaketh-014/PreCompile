@@ -1,0 +1,18 @@
+[Unit]
+Description=PreCompile Build Acceleration Daemon
+Documentation=https://github.com/precompile/precompile
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m precompile daemon --actuate --db /var/lib/precompile/precompile.db --pid-file /run/precompile.pid
+Restart=on-failure
+RestartSec=3s
+StateDirectory=precompile
+RuntimeDirectory=precompile
+KillMode=mixed
+TimeoutStopSec=10s
+ExecStopPost=/usr/bin/python3 -m precompile cleanup
+
+[Install]
+WantedBy=multi-user.target
