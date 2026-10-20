@@ -41,6 +41,7 @@ htmlcov/
 *.pause
 config.yaml
 benchmarks/results/
+benchmarks/results_pilot1/
 *.jsonl
 
 

@@ -1,16 +1,20 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 """PreCompile Benchmark Evaluation Harness.
 
-Stage Mapping: Step 11a / Step 11b Part C.
+Stage Mapping: Step 11a / Step 11b Part C / Step 11a3.
 Orchestrates balanced block-rotated experiment runs across conditions, workloads, and
-load levels as pre-registered in benchmarks/EXPERIMENT_PLAN.md.
+load levels as pre-registered in benchmarks/EXPERIMENT_PLAN.md (Version 1.1.0).
 """
 
 import argparse
 import atexit
+import glob
 import json
 import os
+import platform
+import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -31,8 +35,7 @@ DEFAULT_WARMUPS = 12
 DEFAULT_CYCLES = 5
 DEFAULT_BLOCK_SIZE = 10
 PILOT_WARMUPS = 2
-PILOT_CYCLES = 1
-PILOT_BLOCK_SIZE = 3
+PILOT_BLOCK_SIZE = 5
 
 
 def run_cmd(cmd: List[str], check: bool = True, timeout: float = 60.0) -> subprocess.CompletedProcess:
@@ -60,11 +63,96 @@ def cleanup_system(load_script: Path) -> None:
         pass
 
 
-def generate_balanced_blocks(conditions: List[str], cycles: int) -> List[Tuple[int, str]]:
-    """Generate balanced Latin-square rotated block sequence across cycles.
+def read_psi_cpu_avg10() -> float:
+    try:
+        with open("/proc/pressure/cpu", "r") as f:
+            for line in f:
+                if line.startswith("some"):
+                    m = re.search(r"avg10=([\d\.]+)", line)
+                    if m:
+                        return float(m.group(1))
+    except Exception:
+        pass
+    return 0.0
 
-    Returns list of (cycle_index, condition).
-    """
+
+def wait_for_ramp_down(target_psi: float = 5.0, max_wait_s: float = 40.0) -> float:
+    t0 = time.monotonic()
+    current_psi = read_psi_cpu_avg10()
+    while current_psi >= target_psi and (time.monotonic() - t0) < max_wait_s:
+        time.sleep(1.0)
+        current_psi = read_psi_cpu_avg10()
+    elapsed = time.monotonic() - t0
+    print(f"  [ramp-down] PSI some_avg10 settled to {current_psi:.2f}% in {elapsed:.1f}s (target < {target_psi}%)")
+    return current_psi
+
+
+def get_stress_pids() -> List[int]:
+    pids = []
+    for p in glob.glob("/proc/[0-9]*"):
+        try:
+            with open(f"{p}/comm", "r") as f:
+                comm = f.read().strip()
+                if "stress-ng" in comm:
+                    pids.append(int(os.path.basename(p)))
+        except Exception:
+            pass
+    return pids
+
+
+def get_process_cpu_ticks(pid: int) -> Optional[int]:
+    try:
+        with open(f"/proc/{pid}/stat", "r") as f:
+            fields = f.read().split()
+            # utime is index 13, stime is index 14
+            return int(fields[13]) + int(fields[14])
+    except Exception:
+        return None
+
+
+def get_stress_cpu_ticks() -> int:
+    total = 0
+    for pid in get_stress_pids():
+        ticks = get_process_cpu_ticks(pid)
+        if ticks is not None:
+            total += ticks
+    return total
+
+
+def get_system_metadata(cpuset: str, tier: str, pilot: bool) -> Dict[str, Any]:
+    stress_ver = "unknown"
+    try:
+        res = subprocess.run(["stress-ng", "--version"], capture_output=True, text=True, check=False)
+        m = re.search(r"version\s+([\d\.]+)", res.stdout or res.stderr)
+        if m:
+            stress_ver = m.group(1)
+    except Exception:
+        pass
+
+    cpu_model = "unknown"
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if "model name" in line:
+                    cpu_model = line.split(":", 1)[1].strip()
+                    break
+    except Exception:
+        pass
+
+    return {
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "kernel": platform.release(),
+        "cpu_model": cpu_model,
+        "cpu_count": os.cpu_count(),
+        "cpuset": cpuset,
+        "stress_ng_version": stress_ver,
+        "cgroup_controller": "cgroup v2",
+        "tier": tier,
+        "pilot": pilot,
+    }
+
+
+def generate_balanced_blocks(conditions: List[str], cycles: int) -> List[Tuple[int, str]]:
     blocks: List[Tuple[int, str]] = []
     n = len(conditions)
     for c in range(cycles):
@@ -95,12 +183,14 @@ class ExperimentRunner:
         self.project_dir = project_dir or Path("/home/saketh/precompile-demo-heavy")
         self.load_script = SCRIPT_DIR / "load.sh"
 
-        self.cycles = PILOT_CYCLES if pilot else DEFAULT_CYCLES
+        self.cycles = 1 if pilot else DEFAULT_CYCLES
         self.block_size = PILOT_BLOCK_SIZE if pilot else DEFAULT_BLOCK_SIZE
         self.warmup_builds = PILOT_WARMUPS if pilot else DEFAULT_WARMUPS
 
         self.jsonl_path = self.output_dir / "results.jsonl"
-        self.completed_blocks: Set[Tuple[str, str, str, int]] = set()  # (scenario, load, cond, cycle)
+        self.header_path = self.output_dir / "harness_header.json"
+        self.block_metrics_path = self.output_dir / "block_metrics.jsonl"
+        self.completed_blocks: Set[Tuple[str, str, str, int]] = set()
 
     def init_environment(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -112,11 +202,16 @@ class ExperimentRunner:
                 print(f"Error: Project directory {self.project_dir} does not exist.", file=sys.stderr)
                 sys.exit(1)
 
-        # Register cleanup handler
+        # Write dynamic metadata header
+        meta = get_system_metadata(self.cpuset, self.tier, self.pilot)
+        with open(self.header_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+        print(f"Recorded dynamic environment metadata to: {self.header_path}")
+        print(f"  Kernel: {meta['kernel']} | CPU: {meta['cpu_model']} | stress-ng: {meta['stress_ng_version']}")
+
         if not self.dry_run:
             atexit.register(cleanup_system, self.load_script)
 
-        # Parse existing JSONL if resume is requested
         if self.resume and self.jsonl_path.exists():
             print(f"Checking existing runs in {self.jsonl_path} for resume...")
             with open(self.jsonl_path, "r", encoding="utf-8") as f:
@@ -138,53 +233,144 @@ class ExperimentRunner:
             print(f"Found {len(self.completed_blocks)} previously completed blocks.")
 
     def get_plan(self) -> List[Dict[str, Any]]:
-        """Construct planned execution matrix according to Tier and EXPERIMENT_PLAN.md."""
-        scenarios: List[str] = []
-        if self.tier in ("1", "all"):
-            scenarios.append("A")
-        if self.tier in ("2", "all"):
-            scenarios.append("B")
-
         plan: List[Dict[str, Any]] = []
 
-        for sc in scenarios:
-            if self.pilot:
-                loads = ["moderate", "high"]
-                conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]
-            elif self.tier == "1":
-                loads = ["idle", "moderate", "high"]
-                conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]
-            elif self.tier == "2":
-                loads = ["high"]
-                conds = ["a1-reactive", "a2-noconf", "a3-nocont", "a4-fixedwin", "a5-noholdout"]
-            else:
-                loads = ["idle", "moderate", "high"]
-                conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]
+        if self.pilot:
+            # Second pilot plan as specified in Step 11a3 Item 6:
+            # 1. Scenario A at high load (C0 to C3, 1 block of 5 builds each, plus warm-ups)
+            for cond in ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]:
+                plan.append({
+                    "tier": "pilot",
+                    "scenario": "A",
+                    "load_level": "high",
+                    "condition": cond,
+                    "cycle": 1,
+                    "builds_per_block": 5,
+                    "warmups": 2,
+                    "mode": "auto",
+                })
 
+            # 2. Scenario B at moderate load (C0 to C3, 5 builds each, manual-irregular)
+            for cond in ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]:
+                plan.append({
+                    "tier": "pilot",
+                    "scenario": "B",
+                    "load_level": "moderate",
+                    "condition": cond,
+                    "cycle": 1,
+                    "builds_per_block": 5,
+                    "warmups": 0,
+                    "mode": "manual-irregular",
+                })
+
+            # 3. Scenario C at moderate load (C0 to C3, 10 saves each, save-only)
+            for cond in ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]:
+                plan.append({
+                    "tier": "pilot",
+                    "scenario": "C",
+                    "load_level": "moderate",
+                    "condition": cond,
+                    "cycle": 1,
+                    "builds_per_block": 10,
+                    "warmups": 0,
+                    "mode": "save-only",
+                })
+
+            # 4. Ramp-down rule test: High-load burst block followed by C2 & C3 at Idle
+            plan.append({
+                "tier": "pilot",
+                "scenario": "A",
+                "load_level": "high",
+                "condition": "c2-full",
+                "cycle": 2,
+                "builds_per_block": 2,
+                "warmups": 0,
+                "mode": "auto",
+            })
+            for cond in ["c2-full", "c3-static"]:
+                plan.append({
+                    "tier": "pilot",
+                    "scenario": "A",
+                    "load_level": "idle",
+                    "condition": cond,
+                    "cycle": 1,
+                    "builds_per_block": 5,
+                    "warmups": 0,
+                    "mode": "auto",
+                })
+            return plan
+
+        # Full experiments plan
+        if self.tier in ("1", "all"):
+            # Scenario A across idle, moderate, high load
+            loads = ["idle", "moderate", "high"]
+            conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]
             for ld in loads:
                 block_seq = generate_balanced_blocks(conds, self.cycles)
                 for cy, cond in block_seq:
                     plan.append({
-                        "tier": self.tier,
-                        "scenario": sc,
+                        "tier": "1",
+                        "scenario": "A",
                         "load_level": ld,
                         "condition": cond,
                         "cycle": cy,
                         "builds_per_block": self.block_size,
-                        "warmups": self.warmup_builds,
+                        "warmups": self.warmup_builds if cy == 1 else 0,
+                        "mode": "auto",
                     })
+
+        if self.tier in ("2", "all"):
+            # Scenario B at moderate load: 30 builds per condition (3 blocks of 10)
+            conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]
+            block_seq = generate_balanced_blocks(conds, 3)
+            for cy, cond in block_seq:
+                plan.append({
+                    "tier": "2",
+                    "scenario": "B",
+                    "load_level": "moderate",
+                    "condition": cond,
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": 0,
+                    "mode": "manual-irregular",
+                })
+
+            # Scenario C at moderate load: 50 saves per condition (1 block of 50 saves)
+            for cond in ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]:
+                plan.append({
+                    "tier": "2",
+                    "scenario": "C",
+                    "load_level": "moderate",
+                    "condition": cond,
+                    "cycle": 1,
+                    "builds_per_block": 50,
+                    "warmups": 0,
+                    "mode": "save-only",
+                })
+
         return plan
 
-    def _start_load(self, load_level: str) -> None:
+    def _start_load(self, load_level: str, previous_load: Optional[str] = None) -> None:
+        load_order = {"idle": 0, "moderate": 1, "high": 2}
+        is_decrease = (
+            previous_load is not None
+            and load_order.get(load_level, 0) < load_order.get(previous_load, 0)
+        )
+
         if load_level == "idle":
             run_cmd([str(self.load_script), "stop"], check=False)
             time.sleep(1)
+            if is_decrease:
+                wait_for_ramp_down(target_psi=5.0, max_wait_s=40.0)
         else:
             env = os.environ.copy()
             env["CPUSET"] = self.cpuset
             subprocess.run([str(self.load_script), load_level], env=env, check=True)
-            print(f"  Waiting 12s for PSI cpu stabilization under {load_level} load...")
-            time.sleep(12)
+            if is_decrease:
+                wait_for_ramp_down(target_psi=5.0, max_wait_s=40.0)
+            else:
+                print(f"  Waiting 12s for PSI cpu stabilization under {load_level} load...")
+                time.sleep(12)
 
     def _stop_load(self) -> None:
         run_cmd([str(self.load_script), "stop"], check=False)
@@ -192,37 +378,31 @@ class ExperimentRunner:
 
     def _start_daemon(self, condition: str, db_path: Path, pid_file: Path, log_file: Path) -> Optional[subprocess.Popen]:
         if condition == "c0-baseline":
-            # Baseline runs observation-only daemon to track builds without cgroup actuation
-            cmd = [
-                sys.executable, "-m", "precompile.cli", "daemon",
-                "--observe-only",
-                "--db", str(db_path),
-                "--pid-file", str(pid_file),
-                "--log-level", "INFO",
-            ]
-        else:
-            cmd = [
-                sys.executable, "-m", "precompile.cli", "daemon",
-                "--actuate",
-                "--weight", "500",
-                "--db", str(db_path),
-                "--pid-file", str(pid_file),
-                "--log-level", "INFO",
-            ]
-            if condition == "c1-reactive" or condition == "a1-reactive":
-                cmd.extend(["--condition", "c1-reactive"])
-            elif condition == "c2-full":
-                cmd.extend(["--condition", "c2-full"])
-            elif condition == "c3-static":
-                cmd.extend(["--condition", "c3-static"])
-            elif condition == "a2-noconf":
-                cmd.extend(["--ablation-no-confidence-gate"])
-            elif condition == "a3-nocont":
-                cmd.extend(["--ablation-no-contention-gate"])
-            elif condition == "a4-fixedwin":
-                cmd.extend(["--ablation-fixed-window", "0.0,5.0"])
-            elif condition == "a5-noholdout":
-                cmd.extend(["--ablation-no-holdout"])
+            # C0 = No daemon at all (natural uninhibited execution)
+            return None
+
+        cmd = [
+            sys.executable, "-m", "precompile.cli", "daemon",
+            "--actuate",
+            "--weight", "500",
+            "--db", str(db_path),
+            "--pid-file", str(pid_file),
+            "--log-level", "INFO",
+        ]
+        if condition == "c1-reactive" or condition == "a1-reactive":
+            cmd.extend(["--condition", "c1-reactive"])
+        elif condition == "c2-full":
+            cmd.extend(["--condition", "c2-full"])
+        elif condition == "c3-static":
+            cmd.extend(["--condition", "c3-static"])
+        elif condition == "a2-noconf":
+            cmd.extend(["--ablation-no-confidence-gate"])
+        elif condition == "a3-nocont":
+            cmd.extend(["--ablation-no-contention-gate"])
+        elif condition == "a4-fixedwin":
+            cmd.extend(["--ablation-fixed-window", "0.0,5.0"])
+        elif condition == "a5-noholdout":
+            cmd.extend(["--ablation-no-holdout"])
 
         log_fp = open(log_file, "w")
         proc = subprocess.Popen(cmd, stdout=log_fp, stderr=subprocess.STDOUT, text=True)
@@ -246,7 +426,6 @@ class ExperimentRunner:
                 proc.wait(timeout=2.0)
 
     def _seed_warm_model(self, db_path: Path) -> None:
-        """Seed initial observations so confidence & cost gates are active from start."""
         from precompile.store import DataStore
         with DataStore(db_path=db_path) as store:
             for i in range(6):
@@ -273,13 +452,16 @@ class ExperimentRunner:
                 status = "COMPLETED" if key in self.completed_blocks else "PENDING"
                 print(
                     f"  Block {i:>2}: Scenario {p['scenario']} | Load: {p['load_level']:<8} | "
-                    f"Cond: {p['condition']:<12} | Cycle {p['cycle']} | Status: {status}"
+                    f"Cond: {p['condition']:<12} | Cycle {p['cycle']} | Mode: {p['mode']} | Status: {status}"
                 )
             print("\n[DRY RUN] Completed without executing benchmarks.")
             return
 
         current_load: Optional[str] = None
         jsonl_fp = open(self.jsonl_path, "a", encoding="utf-8")
+        block_fp = open(self.block_metrics_path, "a", encoding="utf-8")
+
+        clk_tck = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 
         try:
             for b_idx, block in enumerate(plan, 1):
@@ -287,21 +469,18 @@ class ExperimentRunner:
                 ld = block["load_level"]
                 cn = block["condition"]
                 cy = block["cycle"]
+                num_items = block["builds_per_block"]
+                warmups = block.get("warmups", 0)
+                sim_mode = block.get("mode", "auto")
                 key = (sc, ld, cn, cy)
 
                 if key in self.completed_blocks:
                     print(f"Skipping completed block {b_idx}/{len(plan)}: {key}")
                     continue
 
-                print(f"\n>>> Starting Block {b_idx}/{len(plan)}: Scenario={sc}, Load={ld}, Cond={cn}, Cycle={cy}")
+                print(f"\n>>> Starting Block {b_idx}/{len(plan)}: Scenario={sc}, Load={ld}, Cond={cn}, Cycle={cy}, Mode={sim_mode}")
 
-                # 1. Load transition
-                if ld != current_load:
-                    print(f"Switching load from {current_load} -> {ld}")
-                    self._start_load(ld)
-                    current_load = ld
-
-                # 2. Database & Daemon setup
+                # 1. Database & Artifact setup
                 block_tag = f"{sc}_{ld}_{cn}_c{cy}"
                 db_path = self.output_dir / f"db_{block_tag}.db"
                 pid_file = self.output_dir / f"pid_{block_tag}.pid"
@@ -327,90 +506,235 @@ class ExperimentRunner:
                 if cn in ("c2-full", "a2-noconf", "a3-nocont", "a4-fixedwin", "a5-noholdout"):
                     self._seed_warm_model(db_path)
 
-                # 3. Start daemon
+                # 2. Start daemon BEFORE PSI settling wait (Item 3c)
                 daemon_proc = self._start_daemon(cn, db_path, pid_file, log_file)
+                daemon_pid = daemon_proc.pid if daemon_proc else None
+                daemon_ticks_start = get_process_cpu_ticks(daemon_pid) if daemon_pid else 0
+
+                # 3. Transition load if required
+                if ld != current_load:
+                    print(f"Switching load from {current_load} -> {ld}")
+                    self._start_load(ld, previous_load=current_load)
+                    current_load = ld
+
+                # Log PSI at block start
+                block_start_psi = read_psi_cpu_avg10()
+                print(f"  [block-start] System CPU PSI some_avg10 = {block_start_psi:.2f}% (Load: {ld}, Cond: {cn})")
+
+                # Snapshot stress worker CPU ticks
+                stress_ticks_start = get_stress_cpu_ticks()
+                t_block_start = time.monotonic()
 
                 try:
-                    # 4. Warm-ups if first cycle for this condition
-                    if cy == 1 and self.warmup_builds > 0:
-                        print(f"  Running {self.warmup_builds} warm-up builds...")
+                    # 4. Warm-ups
+                    if warmups > 0:
+                        print(f"  Running {warmups} warm-up builds...")
                         sim_cmd = [
-                            sys.executable, "benchmarks/build_on_save.py",
+                            sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
                             "--project", str(self.project_dir),
-                            "--cycles", str(self.warmup_builds),
+                            "--cycles", str(warmups),
                             "--edit-file", "big.c",
                             "--delay-mean", "1.8",
-                            "--delay-jitter", "0.05",
+                            "--delay-jitter", "0.1",
                             "--mode", "auto",
                             "--cpuset", self.cpuset,
                         ]
                         subprocess.run(sim_cmd, timeout=180, check=True, capture_output=True)
 
-                    # 5. Execute measured builds
-                    print(f"  Running {self.block_size} measured builds...")
-                    for b_num in range(1, self.block_size + 1):
-                        t_build_start = time.time()
-                        # Run single build-on-save cycle with 60s hard watchdog
+                    # 5. Execute workload
+                    if sim_mode == "save-only":
+                        print(f"  Running {num_items} save-only iterations...")
                         sim_cmd = [
-                            sys.executable, "benchmarks/build_on_save.py",
+                            sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
                             "--project", str(self.project_dir),
-                            "--cycles", "1",
+                            "--cycles", str(num_items),
                             "--edit-file", "big.c",
-                            "--delay-mean", "1.8",
-                            "--delay-jitter", "0.05",
-                            "--mode", "auto",
+                            "--gap", "2.0",
+                            "--mode", "save-only",
                             "--cpuset", self.cpuset,
                         ]
-                        t0 = time.monotonic()
-                        res = subprocess.run(sim_cmd, timeout=60.0, capture_output=True, text=True)
-                        dur = time.monotonic() - t0
+                        subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                    else:
+                        print(f"  Running {num_items} measured builds (mode={sim_mode})...")
+                        for b_idx_in_block in range(num_items):
+                            build_num = b_idx_in_block + 1
+                            sim_cmd = [
+                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                "--project", str(self.project_dir),
+                                "--cycles", "1",
+                                "--edit-file", "big.c",
+                                "--delay-mean", "1.8",
+                                "--delay-jitter", "0.1",
+                                "--mode", sim_mode,
+                                "--cpuset", self.cpuset,
+                            ]
+                            t_start_build = time.time()
+                            t0 = time.monotonic()
+                            res = subprocess.run(sim_cmd, timeout=60.0, capture_output=True, text=True)
+                            dur_wall = time.monotonic() - t0
 
-                        # Query latest build and reservation row from DB
-                        res_rec: Dict[str, Any] = {}
-                        import sqlite3
-                        with sqlite3.connect(db_path) as conn:
-                            conn.row_factory = sqlite3.Row
-                            cur = conn.cursor()
-                            cur.execute("SELECT * FROM builds ORDER BY id DESC LIMIT 1")
-                            b_row = cur.fetchone()
-                            cur.execute("SELECT * FROM reservations ORDER BY rowid DESC LIMIT 1")
-                            r_row = cur.fetchone()
+                            # Parse cpu_seconds from stdout of build_on_save
+                            cpu_s = 0.0
+                            m_cpu = re.search(r"cpu=([\d\.]+)s", res.stdout)
+                            if m_cpu:
+                                cpu_s = float(m_cpu.group(1))
 
-                        b_dict = dict(b_row) if b_row else {}
-                        r_dict = dict(r_row) if r_row else {}
+                            # Query SQLite DB for build and reservation records
+                            b_dict: Dict[str, Any] = {}
+                            r_dict: Dict[str, Any] = {}
+                            if db_path.exists():
+                                with sqlite3.connect(db_path) as conn:
+                                    conn.row_factory = sqlite3.Row
+                                    cur = conn.cursor()
+                                    cur.execute("SELECT * FROM builds ORDER BY id DESC LIMIT 1")
+                                    b_row = cur.fetchone()
+                                    if b_row:
+                                        b_dict = dict(b_row)
+                                    cur.execute("SELECT * FROM reservations ORDER BY rowid DESC LIMIT 1")
+                                    r_row = cur.fetchone()
+                                    if r_row:
+                                        r_dict = dict(r_row)
 
-                        dur_wall = b_dict.get("duration_s", dur)
-                        lat_s = r_dict.get("claim_latency_s")
-                        usage_usec = r_dict.get("cgroup_usage_usec")
-                        cgroup_share = (usage_usec / (1e6 * dur_wall)) if (usage_usec is not None and dur_wall > 0) else None
+                            build_dur = b_dict.get("duration_s", dur_wall)
+                            lat_s = r_dict.get("claim_latency_s")
+                            usage_usec = r_dict.get("cgroup_usage_usec")
+                            cgroup_share = (usage_usec / (1e6 * build_dur)) if (usage_usec is not None and build_dur > 0) else None
 
-                        record = {
-                            "timestamp": time.time(),
-                            "tier": self.tier,
-                            "scenario": sc,
-                            "load_level": ld,
-                            "condition": cn,
-                            "cycle": cy,
-                            "block_index": b_idx,
-                            "build_index": b_num,
-                            "is_warmup": False,
-                            "duration_wall_s": dur_wall,
-                            "contention_level": b_dict.get("contention_level", 0.0),
-                            "decision": b_dict.get("condition", "unknown"),
-                            "res_id": r_dict.get("id"),
-                            "claimed": bool(r_dict.get("claimed_pid")),
-                            "claim_latency_ms": (lat_s * 1000.0) if lat_s is not None else None,
-                            "cgroup_cpu_share": cgroup_share,
-                            "exit_code": res.returncode,
-                        }
-                        jsonl_fp.write(json.dumps(record) + "\n")
-                        jsonl_fp.flush()
+                            # Unboosted detection (Item 3d)
+                            unboosted = False
+                            unboosted_reason: Optional[str] = None
+                            if cn in ("c1-reactive", "c2-full", "c3-static", "a1-reactive", "a2-noconf", "a3-nocont", "a4-fixedwin", "a5-noholdout"):
+                                is_claimed = bool(r_dict.get("claimed_pid"))
+                                is_holdout = (b_dict.get("condition") == "holdout")
+                                if is_holdout:
+                                    unboosted = True
+                                    unboosted_reason = "holdout"
+                                elif not is_claimed:
+                                    unboosted = True
+                                    unboosted_reason = "no reservation / missed"
+                                elif cgroup_share is not None and cgroup_share < 0.50:
+                                    unboosted = True
+                                    unboosted_reason = f"cgroup throttling (share={cgroup_share*100:.1f}%)"
+                                elif lat_s is not None and lat_s > 0.100:
+                                    unboosted = True
+                                    unboosted_reason = f"late claim ({lat_s*1000:.1f}ms)"
+
+                            record = {
+                                "timestamp": t_start_build,
+                                "tier": self.tier,
+                                "scenario": sc,
+                                "load_level": ld,
+                                "condition": cn,
+                                "cycle": cy,
+                                "block_index": b_idx,
+                                "block_build_index": b_idx_in_block,  # 0-based
+                                "build_index": build_num,             # 1-based
+                                "is_warmup": False,
+                                "duration_wall_s": build_dur,
+                                "cpu_seconds": cpu_s,
+                                "contention_level": b_dict.get("contention_level", block_start_psi),
+                                "block_start_psi": block_start_psi,
+                                "decision": b_dict.get("condition", "observed" if cn == "c0-baseline" else "unknown"),
+                                "res_id": r_dict.get("id"),
+                                "claimed": bool(r_dict.get("claimed_pid")),
+                                "claim_latency_ms": (lat_s * 1000.0) if lat_s is not None else None,
+                                "cgroup_cpu_share": cgroup_share,
+                                "unboosted": unboosted,
+                                "unboosted_reason": unboosted_reason,
+                                "exit_code": res.returncode,
+                            }
+                            jsonl_fp.write(json.dumps(record) + "\n")
+                            jsonl_fp.flush()
 
                 finally:
-                    # Cleanly terminate daemon
+                    t_block_wall = max(0.001, time.monotonic() - t_block_start)
+                    daemon_ticks_end = get_process_cpu_ticks(daemon_pid) if daemon_pid else 0
+                    stress_ticks_end = get_stress_cpu_ticks()
+
+                    # Compute daemon CPU %
+                    daemon_cpu_pct = 0.0
+                    if daemon_pid and daemon_ticks_end >= daemon_ticks_start:
+                        d_ticks = daemon_ticks_end - daemon_ticks_start
+                        daemon_cpu_pct = (d_ticks / clk_tck / t_block_wall) * 100.0
+
+                    # Compute background impact (CPU sec per wall sec)
+                    bg_cpu_rate = 0.0
+                    if stress_ticks_end >= stress_ticks_start:
+                        s_ticks = stress_ticks_end - stress_ticks_start
+                        bg_cpu_rate = (s_ticks / clk_tck) / t_block_wall
+
+                    # Stop daemon cleanly
                     self._stop_daemon(daemon_proc)
 
-                # Check for lingering cgroups
+                # Parse watcher shutdown stats from log
+                watcher_stats: Dict[str, Any] = {}
+                if log_file.exists():
+                    log_text = log_file.read_text(encoding="utf-8", errors="replace")
+                    m_stat = re.search(
+                        r"\[shutdown\] Watcher stats: scans=(\d+), avg_scan=([\d\.]+)ms, max_scan=([\d\.]+)ms",
+                        log_text,
+                    )
+                    if m_stat:
+                        scans = int(m_stat.group(1))
+                        avg_s = float(m_stat.group(2))
+                        watcher_stats = {
+                            "scans_total": scans,
+                            "avg_scan_ms": avg_s,
+                            "scans_per_sec": scans / t_block_wall,
+                        }
+
+                # Compute DB metrics (hit rate, false reservation rate, missed rate)
+                hit_rate: Optional[float] = None
+                false_res_rate: Optional[float] = None
+                missed_rate: Optional[float] = None
+                if db_path.exists():
+                    try:
+                        with sqlite3.connect(db_path) as conn:
+                            cur = conn.cursor()
+                            # Predictions
+                            cur.execute("SELECT count(*) FROM predictions WHERE outcome = 'hit'")
+                            n_hits = cur.fetchone()[0]
+                            cur.execute("SELECT count(*) FROM predictions WHERE outcome IN ('hit', 'miss')")
+                            n_scored = cur.fetchone()[0]
+                            hit_rate = (n_hits / n_scored) if n_scored > 0 else None
+
+                            # Reservations
+                            cur.execute("SELECT count(*) FROM reservations WHERE final_state = 'EXPIRED'")
+                            n_exp = cur.fetchone()[0]
+                            cur.execute("SELECT count(*) FROM reservations")
+                            n_res = cur.fetchone()[0]
+                            false_res_rate = (n_exp / n_res) if n_res > 0 else None
+
+                            # Builds
+                            cur.execute("SELECT count(*) FROM builds WHERE condition = 'unpredicted' OR prediction_id IS NULL")
+                            n_unpred = cur.fetchone()[0]
+                            cur.execute("SELECT count(*) FROM builds")
+                            n_b = cur.fetchone()[0]
+                            missed_rate = (n_unpred / n_b) if n_b > 0 else None
+                    except Exception as e:
+                        print(f"  [db-metrics-warning] Could not compute metrics from {db_path}: {e}", file=sys.stderr)
+
+                block_summary = {
+                    "block_index": b_idx,
+                    "scenario": sc,
+                    "load_level": ld,
+                    "condition": cn,
+                    "cycle": cy,
+                    "wall_time_s": t_block_wall,
+                    "block_start_psi": block_start_psi,
+                    "daemon_cpu_pct": daemon_cpu_pct,
+                    "watcher_stats": watcher_stats,
+                    "bg_cpu_rate": bg_cpu_rate,
+                    "hit_rate": hit_rate,
+                    "false_res_rate": false_res_rate,
+                    "missed_rate": missed_rate,
+                }
+                block_fp.write(json.dumps(block_summary) + "\n")
+                block_fp.flush()
+
+                print(f"  [block-summary] Wall={t_block_wall:.1f}s | DaemonCPU={daemon_cpu_pct:.2f}% | BgRate={bg_cpu_rate:.2f} cpu/s | Scans/s={watcher_stats.get('scans_per_sec', 0.0):.1f}")
+
+                # Check leftover cgroups
                 leftovers = check_leftover_cgroups()
                 if leftovers:
                     print(f"WARNING: Leftover cgroups found after block {b_idx}: {leftovers}", file=sys.stderr)
@@ -420,6 +744,7 @@ class ExperimentRunner:
 
         finally:
             jsonl_fp.close()
+            block_fp.close()
             self._stop_load()
             cleanup_system(self.load_script)
 
