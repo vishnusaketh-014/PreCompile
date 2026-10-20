@@ -90,22 +90,35 @@ def analyze_experiments(
                     except Exception:
                         pass
 
-    # Group by (scenario, load_level, condition)
-    groups: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+    # Group by (tier, scenario, load_level, condition) - Item 4
+    groups: Dict[Tuple[str, str, str, str], List[Dict[str, Any]]] = {}
     for r in records:
-        key = (r.get("scenario", "A"), r.get("load_level", "high"), r.get("condition", "c0-baseline"))
+        key = (
+            str(r.get("tier", "1")),
+            str(r.get("scenario", "A")),
+            str(r.get("load_level", "high")),
+            str(r.get("condition", "c0-baseline")),
+        )
         groups.setdefault(key, []).append(r)
 
     metrics_summary: List[Dict[str, Any]] = []
 
-    for (sc, ld, cn), recs in sorted(groups.items()):
-        durations = [float(r["duration_wall_s"]) for r in recs if r.get("duration_wall_s") is not None]
+    for (tr, sc, ld, cn), recs in sorted(groups.items()):
+        durations = [
+            float(r.get("build_wall_s", r.get("duration_wall_s")))
+            for r in recs
+            if r.get("build_wall_s") is not None or r.get("duration_wall_s") is not None
+        ]
         mean_dur, std_dur = calc_mean_std(durations)
         med_dur = median(durations) if durations else 0.0
 
-        # Without index 0 (steady-state builds excluding first build of each block)
+        # Without index 0 (sensitivity analysis excluding first build of each block)
         steady_recs = [r for r in recs if r.get("block_build_index", 1) != 0]
-        steady_durs = [float(r["duration_wall_s"]) for r in steady_recs if r.get("duration_wall_s") is not None]
+        steady_durs = [
+            float(r.get("build_wall_s", r.get("duration_wall_s")))
+            for r in steady_recs
+            if r.get("build_wall_s") is not None or r.get("duration_wall_s") is not None
+        ]
         med_steady_dur = median(steady_durs) if steady_durs else med_dur
 
         # Claims & Latencies
@@ -134,10 +147,15 @@ def analyze_experiments(
         ]
         mean_share, _ = calc_mean_std(cpu_shares)
 
-        # Unboosted builds count
+        # Unboosted builds vs Abstained builds count (Item 4)
         unboosted_count = sum(1 for r in recs if r.get("unboosted", False))
+        abstained_count = sum(
+            1 for r in recs
+            if r.get("abstained", False) or "abstained" in str(r.get("unboosted_reason", ""))
+        )
 
         metrics_summary.append({
+            "tier": tr,
             "scenario": sc,
             "load_level": ld,
             "condition": cn,
@@ -153,6 +171,7 @@ def analyze_experiments(
             "mean_claim_lat_ms": mean_lat if claim_latencies else None,
             "mean_cgroup_share": mean_share if cpu_shares else None,
             "unboosted_count": unboosted_count,
+            "abstained_count": abstained_count,
             "raw_durations": durations,
             "raw_steady_durations": steady_durs,
             "raw_latencies": claim_latencies,
@@ -161,101 +180,103 @@ def analyze_experiments(
 
     # Statistical comparisons for pre-registered hypotheses
     comparisons: List[Dict[str, Any]] = []
-    lookup = {(m["scenario"], m["load_level"], m["condition"]): m for m in metrics_summary}
+    lookup = {(m["tier"], m["scenario"], m["load_level"], m["condition"]): m for m in metrics_summary}
 
+    tiers = sorted(list(set(m["tier"] for m in metrics_summary)))
     scenarios = sorted(list(set(m["scenario"] for m in metrics_summary)))
     loads = sorted(list(set(m["load_level"] for m in metrics_summary)))
 
-    for sc in scenarios:
-        for ld in loads:
-            c0 = lookup.get((sc, ld, "c0-baseline"))
-            c1 = lookup.get((sc, ld, "c1-reactive"))
-            c2 = lookup.get((sc, ld, "c2-full"))
-            c3 = lookup.get((sc, ld, "c3-static"))
+    for tr in tiers:
+        for sc in scenarios:
+            for ld in loads:
+                c0 = lookup.get((tr, sc, ld, "c0-baseline"))
+                c1 = lookup.get((tr, sc, ld, "c1-reactive"))
+                c2 = lookup.get((tr, sc, ld, "c2-full"))
+                c3 = lookup.get((tr, sc, ld, "c3-static"))
 
-            # S1: C2 vs C0 Speedup (All builds)
-            if c2 and c0 and len(c2["raw_durations"]) >= 2 and len(c0["raw_durations"]) >= 2:
-                _, _, _, p_val = mann_whitney_u(c2["raw_durations"], c0["raw_durations"])
-                rel_speedup = (c0["med_wall_s"] - c2["med_wall_s"]) / c0["med_wall_s"] if c0["med_wall_s"] > 0 else 0.0
-                _, ci_low, ci_high = bootstrap_relative_effect_ci(
-                    {"all": c2["raw_durations"]}, {"all": c0["raw_durations"]}, n_resamples=1000
-                )
-                comparisons.append({
-                    "hypothesis": f"S1: C2 vs C0 Speedup ({sc}, {ld})",
-                    "scenario": sc,
-                    "load_level": ld,
-                    "comp_type": "C2 vs C0 Duration",
-                    "base_med": c0["med_wall_s"],
-                    "c2_med": c2["med_wall_s"],
-                    "relative_speedup": rel_speedup,
-                    "ci_low": ci_low,
-                    "ci_high": ci_high,
-                    "raw_p": p_val,
-                })
+                # S1: C2 vs C0 Speedup (All builds)
+                if c2 and c0 and len(c2["raw_durations"]) >= 2 and len(c0["raw_durations"]) >= 2:
+                    _, _, _, p_val = mann_whitney_u(c2["raw_durations"], c0["raw_durations"])
+                    rel_speedup = (c0["med_wall_s"] - c2["med_wall_s"]) / c0["med_wall_s"] if c0["med_wall_s"] > 0 else 0.0
+                    _, ci_low, ci_high = bootstrap_relative_effect_ci(
+                        {"all": c2["raw_durations"]}, {"all": c0["raw_durations"]}, n_resamples=1000
+                    )
+                    comparisons.append({
+                        "hypothesis": f"S1: C2 vs C0 Speedup ({sc}, {ld})",
+                        "scenario": sc,
+                        "load_level": ld,
+                        "comp_type": "C2 vs C0 Duration",
+                        "base_med": c0["med_wall_s"],
+                        "c2_med": c2["med_wall_s"],
+                        "relative_speedup": rel_speedup,
+                        "ci_low": ci_low,
+                        "ci_high": ci_high,
+                        "raw_p": p_val,
+                    })
 
-            # S2: C2 vs C1 Anticipatory Advantage (All builds)
-            if c2 and c1 and len(c2["raw_durations"]) >= 2 and len(c1["raw_durations"]) >= 2:
-                _, _, _, p_val = mann_whitney_u(c2["raw_durations"], c1["raw_durations"])
-                rel_speedup = (c1["med_wall_s"] - c2["med_wall_s"]) / c1["med_wall_s"] if c1["med_wall_s"] > 0 else 0.0
-                _, ci_low, ci_high = bootstrap_relative_effect_ci(
-                    {"all": c2["raw_durations"]}, {"all": c1["raw_durations"]}, n_resamples=1000
-                )
-                comparisons.append({
-                    "hypothesis": f"S2: C2 vs C1 Duration ({sc}, {ld})",
-                    "scenario": sc,
-                    "load_level": ld,
-                    "comp_type": "C2 vs C1 Duration",
-                    "base_med": c1["med_wall_s"],
-                    "c2_med": c2["med_wall_s"],
-                    "relative_speedup": rel_speedup,
-                    "ci_low": ci_low,
-                    "ci_high": ci_high,
-                    "raw_p": p_val,
-                })
+                # S2: C2 vs C1 Anticipatory Advantage (All builds)
+                if c2 and c1 and len(c2["raw_durations"]) >= 2 and len(c1["raw_durations"]) >= 2:
+                    _, _, _, p_val = mann_whitney_u(c2["raw_durations"], c1["raw_durations"])
+                    rel_speedup = (c1["med_wall_s"] - c2["med_wall_s"]) / c1["med_wall_s"] if c1["med_wall_s"] > 0 else 0.0
+                    _, ci_low, ci_high = bootstrap_relative_effect_ci(
+                        {"all": c2["raw_durations"]}, {"all": c1["raw_durations"]}, n_resamples=1000
+                    )
+                    comparisons.append({
+                        "hypothesis": f"S2: C2 vs C1 Duration ({sc}, {ld})",
+                        "scenario": sc,
+                        "load_level": ld,
+                        "comp_type": "C2 vs C1 Duration",
+                        "base_med": c1["med_wall_s"],
+                        "c2_med": c2["med_wall_s"],
+                        "relative_speedup": rel_speedup,
+                        "ci_low": ci_low,
+                        "ci_high": ci_high,
+                        "raw_p": p_val,
+                    })
 
-            # S3: C2 vs C1 Claim Latency (All builds)
-            if c2 and c1 and len(c2["raw_latencies"]) >= 2 and len(c1["raw_latencies"]) >= 2:
-                _, _, _, p_val = mann_whitney_u(c2["raw_latencies"], c1["raw_latencies"])
-                c1_lat = c1["med_claim_lat_ms"] or 0.0
-                c2_lat = c2["med_claim_lat_ms"] or 0.0
-                rel_red = (c1_lat - c2_lat) / c1_lat if c1_lat > 0 else 0.0
-                _, ci_low, ci_high = bootstrap_relative_effect_ci(
-                    {"all": c2["raw_latencies"]}, {"all": c1["raw_latencies"]}, n_resamples=1000
-                )
-                comparisons.append({
-                    "hypothesis": f"S3: C2 vs C1 Claim Latency ({sc}, {ld})",
-                    "scenario": sc,
-                    "load_level": ld,
-                    "comp_type": "C2 vs C1 Latency (All)",
-                    "base_med": c1_lat,
-                    "c2_med": c2_lat,
-                    "relative_speedup": rel_red,
-                    "ci_low": ci_low,
-                    "ci_high": ci_high,
-                    "raw_p": p_val,
-                })
+                # S3 Primary: C2 vs C1 Claim Latency (All builds)
+                if c2 and c1 and len(c2["raw_latencies"]) >= 2 and len(c1["raw_latencies"]) >= 2:
+                    _, _, _, p_val = mann_whitney_u(c2["raw_latencies"], c1["raw_latencies"])
+                    c1_lat = c1["med_claim_lat_ms"] or 0.0
+                    c2_lat = c2["med_claim_lat_ms"] or 0.0
+                    rel_red = (c1_lat - c2_lat) / c1_lat if c1_lat > 0 else 0.0
+                    _, ci_low, ci_high = bootstrap_relative_effect_ci(
+                        {"all": c2["raw_latencies"]}, {"all": c1["raw_latencies"]}, n_resamples=1000
+                    )
+                    comparisons.append({
+                        "hypothesis": f"S3: C2 vs C1 Claim Latency ({sc}, {ld})",
+                        "scenario": sc,
+                        "load_level": ld,
+                        "comp_type": "C2 vs C1 Latency (All)",
+                        "base_med": c1_lat,
+                        "c2_med": c2_lat,
+                        "relative_speedup": rel_red,
+                        "ci_low": ci_low,
+                        "ci_high": ci_high,
+                        "raw_p": p_val,
+                    })
 
-            # S3 Steady-State: C2 vs C1 Claim Latency (Excluding build index 0)
-            if c2 and c1 and len(c2["raw_steady_latencies"]) >= 2 and len(c1["raw_steady_latencies"]) >= 2:
-                _, _, _, p_val_st = mann_whitney_u(c2["raw_steady_latencies"], c1["raw_steady_latencies"])
-                c1_lat_st = c1["med_steady_lat_ms"] or 0.0
-                c2_lat_st = c2["med_steady_lat_ms"] or 0.0
-                rel_red_st = (c1_lat_st - c2_lat_st) / c1_lat_st if c1_lat_st > 0 else 0.0
-                _, ci_lo_st, ci_hi_st = bootstrap_relative_effect_ci(
-                    {"all": c2["raw_steady_latencies"]}, {"all": c1["raw_steady_latencies"]}, n_resamples=1000
-                )
-                comparisons.append({
-                    "hypothesis": f"S3 (Steady): C2 vs C1 Latency ({sc}, {ld}, ex-idx0)",
-                    "scenario": sc,
-                    "load_level": ld,
-                    "comp_type": "C2 vs C1 Latency (Steady)",
-                    "base_med": c1_lat_st,
-                    "c2_med": c2_lat_st,
-                    "relative_speedup": rel_red_st,
-                    "ci_low": ci_lo_st,
-                    "ci_high": ci_hi_st,
-                    "raw_p": p_val_st,
-                })
+                # S3 Sensitivity Analysis: C2 vs C1 Claim Latency (Excluding build index 0)
+                if c2 and c1 and len(c2["raw_steady_latencies"]) >= 2 and len(c1["raw_steady_latencies"]) >= 2:
+                    _, _, _, p_val_st = mann_whitney_u(c2["raw_steady_latencies"], c1["raw_steady_latencies"])
+                    c1_lat_st = c1["med_steady_lat_ms"] or 0.0
+                    c2_lat_st = c2["med_steady_lat_ms"] or 0.0
+                    rel_red_st = (c1_lat_st - c2_lat_st) / c1_lat_st if c1_lat_st > 0 else 0.0
+                    _, ci_lo_st, ci_hi_st = bootstrap_relative_effect_ci(
+                        {"all": c2["raw_steady_latencies"]}, {"all": c1["raw_steady_latencies"]}, n_resamples=1000
+                    )
+                    comparisons.append({
+                        "hypothesis": f"S3 Sensitivity (ex-idx0): C2 vs C1 Latency ({sc}, {ld})",
+                        "scenario": sc,
+                        "load_level": ld,
+                        "comp_type": "C2 vs C1 Latency (ex-idx0)",
+                        "base_med": c1_lat_st,
+                        "c2_med": c2_lat_st,
+                        "relative_speedup": rel_red_st,
+                        "ci_low": ci_lo_st,
+                        "ci_high": ci_hi_st,
+                        "raw_p": p_val_st,
+                    })
 
     # Holm-Bonferroni correction
     raw_p_list = [c["raw_p"] for c in comparisons]
@@ -265,11 +286,11 @@ def analyze_experiments(
         c["significant"] = adj_p_list[i] < 0.05
 
     # 1. Main Metrics Table
-    print("\n" + "=" * 125)
+    print("\n" + "=" * 138)
     print("PRECOMPILE EVALUATION SUMMARY: BUILD DURATIONS, LATENCIES & SYSTEM METRICS")
-    print("=" * 125)
-    print(f"| {'Scenario':<8} | {'Load':<8} | {'Condition':<12} | {'N':<4} | {'Med Wall':<9} | {'Ex-Idx0':<9} | {'Claims':<7} | {'Med Lat':<9} | {'Ex-Idx0 Lat':<11} | {'CPU Share':<9} | {'Unboosted':<9} |")
-    print(f"|{'-'*10}|{'-'*10}|{'-'*14}|{'-'*6}|{'-'*11}|{'-'*11}|{'-'*9}|{'-'*11}|{'-'*13}|{'-'*11}|{'-'*11}|")
+    print("=" * 138)
+    print(f"| {'Tier':<6} | {'Scenario':<8} | {'Load':<8} | {'Condition':<12} | {'N':<4} | {'Med Wall':<9} | {'Ex-Idx0':<9} | {'Claims':<7} | {'Med Lat':<9} | {'Ex-Idx0 Lat':<11} | {'CPU Share':<9} | {'Unboosted':<9} | {'Abstained':<9} |")
+    print(f"|{'-'*8}|{'-'*10}|{'-'*10}|{'-'*14}|{'-'*6}|{'-'*11}|{'-'*11}|{'-'*9}|{'-'*11}|{'-'*13}|{'-'*11}|{'-'*11}|{'-'*11}|")
     for m in metrics_summary:
         med_w = f"{m['med_wall_s']:.2f}s"
         med_st = f"{m['med_steady_wall_s']:.2f}s"
@@ -278,8 +299,28 @@ def analyze_experiments(
         med_lst = f"{m['med_steady_lat_ms']:.1f}ms" if m['med_steady_lat_ms'] is not None else "N/A"
         share = f"{m['mean_cgroup_share']*100:.1f}%" if m['mean_cgroup_share'] is not None else "N/A"
         unb = f"{m['unboosted_count']}"
-        print(f"| {m['scenario']:<8} | {m['load_level']:<8} | {m['condition']:<12} | {m['count']:<4} | {med_w:<9} | {med_st:<9} | {clm:<7} | {med_l:<9} | {med_lst:<11} | {share:<9} | {unb:<9} |")
-    print("=" * 125)
+        abs_cnt = f"{m['abstained_count']}"
+        print(f"| {m['tier']:<6} | {m['scenario']:<8} | {m['load_level']:<8} | {m['condition']:<12} | {m['count']:<4} | {med_w:<9} | {med_st:<9} | {clm:<7} | {med_l:<9} | {med_lst:<11} | {share:<9} | {unb:<9} | {abs_cnt:<9} |")
+    print("=" * 138)
+
+    # Cross-check of duration measurements (Item 1)
+    diffs = [
+        float(r["wall_daemon_diff_s"])
+        for r in records
+        if r.get("wall_daemon_diff_s") is not None
+    ]
+    if diffs:
+        print("\n" + "=" * 100)
+        print("BUILD-TIME MEASUREMENT CROSS-CHECK: |build_wall_s - daemon_duration_s| DISTRIBUTION")
+        print("=" * 100)
+        print(f"Sample Size: {len(diffs)} builds with daemon duration recorded")
+        print(f"Min:    {min(diffs)*1000:.2f} ms")
+        print(f"p25:    {percentile(diffs, 25)*1000:.2f} ms")
+        print(f"Median: {median(diffs)*1000:.2f} ms")
+        print(f"p75:    {percentile(diffs, 75)*1000:.2f} ms")
+        print(f"Max:    {max(diffs)*1000:.2f} ms")
+        print(f"Mean:   {sum(diffs)/len(diffs)*1000:.2f} ms")
+        print("=" * 100)
 
     # 2. Secondary Decomposed C2 Reporting (Reserved vs Holdout)
     c2_recs = [r for r in records if r.get("condition") == "c2-full"]
@@ -331,6 +372,26 @@ def analyze_experiments(
             print(f"| {b_i:<3} | {sc:<5} | {ld:<8} | {cn:<12} | {wall:<8} | {psi0:<7} | {dcpu:<10} | {scans_s:<8} | {avg_s:<8} | {bg:<14} | {hit:<6} | {f_res:<9} |")
         print("=" * 125)
 
+        # Print per-thread CPU table if thread_cpu_breakdown exists (Item 2a)
+        has_threads = any(b.get("thread_cpu_breakdown") for b in block_metrics)
+        if has_threads:
+            print("\n" + "=" * 105)
+            print("DAEMON PER-THREAD CPU USAGE BREAKDOWN (from /proc/<pid>/task/*/stat)")
+            print("=" * 105)
+            print(f"| {'Blk':<3} | {'Scen':<5} | {'Load':<8} | {'Condition':<12} | {'Thread Name':<20} | {'Core CPU %':<12} | {'Daemon Share %':<15} |")
+            print(f"|{'-'*5}|{'-'*7}|{'-'*10}|{'-'*14}|{'-'*22}|{'-'*14}|{'-'*17}|")
+            for b in block_metrics:
+                b_i = b.get("block_index", 0)
+                sc = b.get("scenario", "A")
+                ld = b.get("load_level", "")
+                cn = b.get("condition", "")
+                th_data = b.get("thread_cpu_breakdown", {})
+                for comm, info in sorted(th_data.items(), key=lambda x: -x[1].get("pct_core", 0.0)):
+                    pct_c = f"{info.get('pct_core', 0.0):.2f}%"
+                    pct_d = f"{info.get('pct_daemon', 0.0):.1f}%"
+                    print(f"| {b_i:<3} | {sc:<5} | {ld:<8} | {cn:<12} | {comm:<20} | {pct_c:<12} | {pct_d:<15} |")
+            print("=" * 105)
+
     # 4. Hypothesis Testing Table
     if comparisons:
         print("\n" + "=" * 125)
@@ -351,14 +412,18 @@ def analyze_experiments(
 
     # 5. Outlier Builds Section (Duration > 1.5x Cell Median + CPU Share & Unboosted Reason)
     outliers: List[Dict[str, Any]] = []
-    for (sc, ld, cn), recs in sorted(groups.items()):
-        durations = [float(r["duration_wall_s"]) for r in recs if r.get("duration_wall_s") is not None]
+    for (tr, sc, ld, cn), recs in sorted(groups.items()):
+        durations = [
+            float(r.get("build_wall_s", r.get("duration_wall_s")))
+            for r in recs
+            if r.get("build_wall_s") is not None or r.get("duration_wall_s") is not None
+        ]
         if not durations:
             continue
         med_dur = median(durations)
         threshold = 1.5 * med_dur
         for r in recs:
-            dur = float(r.get("duration_wall_s", 0.0))
+            dur = float(r.get("build_wall_s", r.get("duration_wall_s", 0.0)))
             if dur > threshold:
                 tier = r.get("tier", "1")
                 cycle = r.get("cycle", 1)
@@ -428,9 +493,9 @@ def analyze_experiments(
     s2_obs = ", ".join(s2_parts) if s2_parts else "Reported without threshold"
     print(f"| {'S2: Anticipatory vs Reactive':<32} | {'No threshold; effect & 95% CI reported':<42} | {s2_obs[:24]:<24} | {'REPORTED':<10} |")
 
-    # S3: Claim Latency
-    s3_comp = [c for c in comparisons if "S3:" in c["hypothesis"] and "Steady" not in c["hypothesis"]]
-    s3_pass = any(c["relative_speedup"] >= 0.25 and c["significant"] for c in s3_comp) if s3_comp else False
+    # S3: Claim Latency (Primary uses ALL builds - Item 2b)
+    s3_comp = [c for c in comparisons if c["hypothesis"].startswith("S3:")]
+    s3_pass = all(c["relative_speedup"] >= 0.25 and c["significant"] for c in s3_comp) if s3_comp else False
     s3_parts = []
     for c in s3_comp:
         s3_parts.append(f"{c['load_level']}: {c['relative_speedup']*100:+.1f}%")
@@ -444,17 +509,17 @@ def analyze_experiments(
     f_res_b_str = f"B: {f_res_b*100:.1f}% false" if f_res_b is not None else "Scenario B: N/A"
     print(f"| {'S4: Precision on Irregular Work':<32} | {'Scen B false res <= 20%, Scen C arm <= 20%':<42} | {f_res_b_str[:24]:<24} | {'EVALUATED':<10} |")
 
-    # S5: Overhead
+    # S5: Overhead (Item 2a: Requires BOTH daemon CPU <= 1.0% AND scan <= 1.5ms; FAIL if either exceeds)
     c2_blocks = [b for b in block_metrics if b.get("condition") == "c2-full"]
     max_dcpu = max((b.get("daemon_cpu_pct", 0.0) for b in c2_blocks), default=0.0)
     max_scan = max((b.get("watcher_stats", {}).get("avg_scan_ms", 0.0) for b in c2_blocks), default=0.0)
-    s5_pass = (max_dcpu <= 1.0) and (max_scan <= 1.5) if c2_blocks else True
+    s5_pass = (max_dcpu <= 1.0) and (max_scan <= 1.5) if c2_blocks else False
     s5_obs = f"CPU={max_dcpu:.2f}%, Scan={max_scan:.2f}ms"
     print(f"| {'S5: Monitoring Overhead':<32} | {'Daemon CPU <= 1.0%, Avg Scan <= 1.5ms':<42} | {s5_obs[:24]:<24} | {'PASS' if s5_pass else 'FAIL':<10} |")
 
     # S6: Bounded Harm
-    idle_c0 = lookup.get(("A", "idle", "c0-baseline"))
-    idle_c2 = lookup.get(("A", "idle", "c2-full"))
+    idle_c0 = next((m for m in metrics_summary if m["scenario"] == "A" and m["load_level"] == "idle" and m["condition"] == "c0-baseline"), None)
+    idle_c2 = next((m for m in metrics_summary if m["scenario"] == "A" and m["load_level"] == "idle" and m["condition"] == "c2-full"), None)
     idle_delta = (
         abs(idle_c2["med_wall_s"] - idle_c0["med_wall_s"]) / idle_c0["med_wall_s"]
         if (idle_c0 and idle_c2 and idle_c0["med_wall_s"] > 0)
@@ -479,16 +544,16 @@ def analyze_experiments(
         with open(metrics_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
-                "scenario", "load_level", "condition", "count", "med_wall_s", "med_steady_wall_s",
+                "tier", "scenario", "load_level", "condition", "count", "med_wall_s", "med_steady_wall_s",
                 "mean_wall_s", "std_wall_s", "claims_count", "claim_rate", "med_claim_lat_ms",
-                "med_steady_lat_ms", "mean_claim_lat_ms", "mean_cgroup_share", "unboosted_count",
+                "med_steady_lat_ms", "mean_claim_lat_ms", "mean_cgroup_share", "unboosted_count", "abstained_count",
             ])
             for m in metrics_summary:
                 writer.writerow([
-                    m["scenario"], m["load_level"], m["condition"], m["count"], m["med_wall_s"],
+                    m["tier"], m["scenario"], m["load_level"], m["condition"], m["count"], m["med_wall_s"],
                     m["med_steady_wall_s"], m["mean_wall_s"], m["std_wall_s"], m["claims_count"],
                     m["claim_rate"], m["med_claim_lat_ms"], m["med_steady_lat_ms"],
-                    m["mean_claim_lat_ms"], m["mean_cgroup_share"], m["unboosted_count"],
+                    m["mean_claim_lat_ms"], m["mean_cgroup_share"], m["unboosted_count"], m["abstained_count"],
                 ])
         print(f"\nWrote metrics summary CSV: {metrics_csv}")
 

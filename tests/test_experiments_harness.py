@@ -62,8 +62,8 @@ class TestExperimentHarness(unittest.TestCase):
 
         runner_pilot = ExperimentRunner(tier="1", pilot=True, dry_run=True, output_dir=self.temp_dir)
         plan_pilot = runner_pilot.get_plan()
-        # Pilot: 4 (Scen A high) + 4 (Scen B mod) + 4 (Scen C mod) + 1 (high burst) + 2 (idle rampdown) = 15 blocks
-        self.assertEqual(len(plan_pilot), 15)
+        # Pilot 3: 4 (Scen A high) + 2 (Scen B mod: c0, c2) + 1 (Scen C mod: c2) = 7 blocks (Plan v1.2)
+        self.assertEqual(len(plan_pilot), 7)
 
         runner_tier2 = ExperimentRunner(tier="2", pilot=False, dry_run=True, output_dir=self.temp_dir)
         plan_tier2 = runner_tier2.get_plan()
@@ -184,6 +184,133 @@ class TestExperimentHarness(unittest.TestCase):
         self.assertTrue(c2_vs_c0["significant"])
 
         self.assertTrue((self.temp_dir / "summary_metrics.csv").exists())
+
+    def test_single_duration_definition_enforced(self) -> None:
+        """Test that single duration definition (build_wall_s) is enforced across all conditions."""
+        jsonl_path = self.temp_dir / "duration_def_test.jsonl"
+        # Create records where C0 and C2 both have build_wall_s
+        records = [
+            {
+                "tier": "pilot", "scenario": "A", "load_level": "high", "condition": "c0-baseline",
+                "block_build_index": 0, "build_index": 1, "is_warmup": False,
+                "build_wall_s": 8.35, "duration_wall_s": 8.35, "daemon_duration_s": None,
+                "wall_daemon_diff_s": None, "unboosted": False, "abstained": False,
+            },
+            {
+                "tier": "pilot", "scenario": "A", "load_level": "high", "condition": "c2-full",
+                "block_build_index": 0, "build_index": 1, "is_warmup": False,
+                "build_wall_s": 1.95, "duration_wall_s": 1.95, "daemon_duration_s": 1.94,
+                "wall_daemon_diff_s": 0.01, "unboosted": False, "abstained": False,
+            },
+        ]
+        with open(jsonl_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r) + "\n")
+
+        analysis = analyze_experiments(jsonl_path, output_dir=self.temp_dir)
+        metrics = analysis["metrics_summary"]
+        c0 = next(m for m in metrics if m["condition"] == "c0-baseline")
+        c2 = next(m for m in metrics if m["condition"] == "c2-full")
+        self.assertAlmostEqual(c0["med_wall_s"], 8.35, places=2)
+        self.assertAlmostEqual(c2["med_wall_s"], 1.95, places=2)
+
+    def test_scenario_isolation_block_scoping(self) -> None:
+        """Test that Scenario C block metrics do NOT include Scenario A rows."""
+        import sqlite3
+        db_path = self.temp_dir / "test_scoping.db"
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE predictions (id INTEGER PRIMARY KEY, scenario TEXT, outcome TEXT)")
+            cur.execute("CREATE TABLE reservations (id TEXT, scenario TEXT, final_state TEXT)")
+            cur.execute("CREATE TABLE builds (id INTEGER PRIMARY KEY, scenario TEXT, condition TEXT, prediction_id INTEGER)")
+
+            # Insert Scenario A rows (6 hits, 6 reservations)
+            for i in range(6):
+                cur.execute("INSERT INTO predictions (scenario, outcome) VALUES ('A', 'hit')")
+                cur.execute("INSERT INTO reservations (scenario, final_state) VALUES ('A', 'CLAIMED')")
+                cur.execute("INSERT INTO builds (scenario, condition, prediction_id) VALUES ('A', 'reserved', ?)", (i + 1,))
+            conn.commit()
+
+            # Record high watermark at end of Scenario A
+            cur.execute("SELECT coalesce(max(id), 0) FROM predictions")
+            min_pred_id = cur.fetchone()[0]
+            cur.execute("SELECT coalesce(max(rowid), 0) FROM reservations")
+            min_res_id = cur.fetchone()[0]
+            cur.execute("SELECT coalesce(max(id), 0) FROM builds")
+            min_build_id = cur.fetchone()[0]
+
+            self.assertEqual(min_pred_id, 6)
+            self.assertEqual(min_res_id, 6)
+            self.assertEqual(min_build_id, 6)
+
+            # Insert Scenario C rows (10 save-only predictions that expire, 0 builds)
+            for i in range(10):
+                cur.execute("INSERT INTO predictions (scenario, outcome) VALUES ('C', 'miss')")
+                cur.execute("INSERT INTO reservations (scenario, final_state) VALUES ('C', 'EXPIRED')")
+            conn.commit()
+
+            # Query scoped to Scenario C block (id > min_id)
+            cur.execute("SELECT count(*) FROM predictions WHERE id > ? AND outcome = 'hit'", (min_pred_id,))
+            scen_c_hits = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM predictions WHERE id > ? AND outcome IN ('hit', 'miss')", (min_pred_id,))
+            scen_c_scored = cur.fetchone()[0]
+            scen_c_hit_rate = (scen_c_hits / scen_c_scored) if scen_c_scored > 0 else None
+
+            # Crucial verification: Scenario C hit rate MUST NOT be 100% from Scenario A
+            self.assertEqual(scen_c_hits, 0)
+            self.assertEqual(scen_c_hit_rate, 0.0)
+
+            cur.execute("SELECT count(*) FROM builds WHERE id > ?", (min_build_id,))
+            scen_c_builds = cur.fetchone()[0]
+            self.assertEqual(scen_c_builds, 0)
+
+    def test_flag_semantics_unboosted_vs_abstained(self) -> None:
+        """Test distinction between unboosted (missed/throttled) and abstained (gate correctly closed)."""
+        jsonl_path = self.temp_dir / "flags_test.jsonl"
+        records = [
+            # 1. Contended build where boost failed -> unboosted
+            {
+                "tier": "pilot", "scenario": "A", "load_level": "high", "condition": "c2-full",
+                "block_build_index": 0, "build_index": 1, "is_warmup": False,
+                "duration_wall_s": 4.5, "cgroup_cpu_share": 0.40,
+                "unboosted": True, "abstained": False, "unboosted_reason": "cgroup throttling (share=40.0%)",
+            },
+            # 2. Idle build where contention gate abstained -> abstained, NOT unboosted
+            {
+                "tier": "pilot", "scenario": "A", "load_level": "idle", "condition": "c2-full",
+                "block_build_index": 0, "build_index": 2, "is_warmup": False,
+                "duration_wall_s": 1.8, "cgroup_cpu_share": None,
+                "unboosted": False, "abstained": True, "unboosted_reason": "not boosted (abstained)",
+            },
+        ]
+        with open(jsonl_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r) + "\n")
+
+        analysis = analyze_experiments(jsonl_path, output_dir=self.temp_dir)
+        metrics = analysis["metrics_summary"]
+        high_c2 = next(m for m in metrics if m["load_level"] == "high" and m["condition"] == "c2-full")
+        idle_c2 = next(m for m in metrics if m["load_level"] == "idle" and m["condition"] == "c2-full")
+
+        self.assertEqual(high_c2["unboosted_count"], 1)
+        self.assertEqual(high_c2["abstained_count"], 0)
+
+        self.assertEqual(idle_c2["unboosted_count"], 0)
+        self.assertEqual(idle_c2["abstained_count"], 1)
+
+    def test_dirty_tree_refusal(self) -> None:
+        """Test that runner refuses non-pilot Tier 1/2 runs when working tree is dirty unless --force."""
+        runner = ExperimentRunner(tier="1", pilot=False, dry_run=True, force=False, output_dir=self.temp_dir)
+        with patch("benchmarks.run_experiments.get_git_metadata", return_value={"git_commit": "1234567", "git_dirty": True, "plan_differs_from_head": False}):
+            with self.assertRaises(SystemExit) as cm:
+                runner.init_environment()
+            self.assertEqual(cm.exception.code, 1)
+
+        # With force=True, it should proceed without exiting
+        runner_forced = ExperimentRunner(tier="1", pilot=False, dry_run=True, force=True, output_dir=self.temp_dir)
+        with patch("benchmarks.run_experiments.get_git_metadata", return_value={"git_commit": "1234567", "git_dirty": True, "plan_differs_from_head": False}):
+            runner_forced.init_environment()
+            self.assertTrue(runner_forced.header_path.exists())
 
     def test_cleanup_system_trap(self) -> None:
         """Test that cleanup_system runs without raising exceptions."""

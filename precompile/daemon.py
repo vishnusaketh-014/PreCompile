@@ -1016,10 +1016,14 @@ class PreCompileDaemon:
         from precompile.reservation import _get_all_descendants_proc
 
         def _checker() -> None:
-            checkpoints = [0.3, 1.0]
+            t_claim_mono = time.monotonic()
+            checkpoints = [0.5, 1.5]
             proc_path = Path("/proc")
             for delay in checkpoints:
-                time.sleep(delay)
+                target_mono = t_claim_mono + delay
+                sleep_s = max(0.0, target_mono - time.monotonic())
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
                 try:
                     descendants = _get_all_descendants_proc(claimed_pid, proc_path, starttime_ticks)
                     leaked: List[str] = []

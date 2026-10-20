@@ -53,3 +53,9 @@ benchmarks/results_pilot1/
 big_prog
 
 *.swo
+
+benchmarks/results_*/
+*.txt
+report.html
+SPEC_SUMMARY.md
+*.pdf

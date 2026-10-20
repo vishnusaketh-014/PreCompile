@@ -214,6 +214,10 @@ class ReservationRecord:
     max_lifetime_s: float = 120.0
     reason: str = ""
     move_done: bool = False
+    weight_at_claim: Optional[int] = None
+    weight_at_close: Optional[int] = None
+    stat_at_claim: Optional[str] = None
+    stat_at_close: Optional[str] = None
 
 
 class Reservation:
@@ -581,6 +585,23 @@ class ReservationManager:
         except Exception as e:
             logger.warning("Error moving processes into cgroup %s: %s", res.group_name, e)
 
+        # Record cpu.weight and cpu.stat at claim time
+        try:
+            w_file = self.base_cgroup_path / res.group_name / "cpu.weight"
+            if w_file.exists():
+                res.weight_at_claim = int(w_file.read_text(encoding="utf-8").strip())
+            s_file = self.base_cgroup_path / res.group_name / "cpu.stat"
+            if s_file.exists():
+                res.stat_at_claim = s_file.read_text(encoding="utf-8").strip()
+            logger.info(
+                "[cgroup_weight] res=%s group=%s weight_at_claim=%s",
+                res.id,
+                res.group_name,
+                res.weight_at_claim,
+            )
+        except Exception as e:
+            logger.debug("Failed to read weight/stat at claim for %s: %s", res.group_name, e)
+
         # Fixpoint sweep: walk /proc every 5ms for sweep_window_s seconds to
         # move late-forked children (such as cc1) into the reservation cgroup.
         # Run asynchronously in a background thread so try_claim returns immediately (<10ms).
@@ -739,9 +760,13 @@ class ReservationManager:
             stop_ev.set()
         # Read group's cpu.stat usage_usec and compute cpu_share before releasing
         try:
+            w_file = self.base_cgroup_path / res.group_name / "cpu.weight"
+            if w_file.exists():
+                res.weight_at_close = int(w_file.read_text(encoding="utf-8").strip())
             stat_file = self.base_cgroup_path / res.group_name / "cpu.stat"
             if stat_file.exists():
                 content = stat_file.read_text(encoding="utf-8")
+                res.stat_at_close = content
                 usage_usec = 0
                 for line in content.splitlines():
                     parts = line.strip().split()
@@ -751,13 +776,16 @@ class ReservationManager:
                 wall_time_s = max(0.001, (res.closed_at or self.clock()) - (res.claimed_at or res.t_save))
                 cpu_share = (usage_usec / 1e6) / wall_time_s
                 logger.info(
-                    "[cgroup_cpu] res=%s group=%s usage_usec=%d wall=%.3fs cpu_share=%.2f (%.1f%%)",
+                    "[cgroup_cpu] res=%s group=%s usage_usec=%d wall=%.3fs cpu_share=%.2f (%.1f%%) weight_claim=%s weight_close=%s stat=%s",
                     res.id,
                     res.group_name,
                     usage_usec,
                     wall_time_s,
                     cpu_share,
                     cpu_share * 100.0,
+                    getattr(res, "weight_at_claim", None),
+                    getattr(res, "weight_at_close", None),
+                    content.replace("\n", " "),
                 )
         except Exception as e:
             logger.debug("Failed to read cpu.stat for %s: %s", res.group_name, e)

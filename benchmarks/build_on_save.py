@@ -102,7 +102,8 @@ def run_developer_simulation(
                 time.sleep(delay)
 
                 # Trigger make (pinned to cpuset via taskset if specified)
-                t_make_start = time.time()
+                t_make_start = time.monotonic()
+                t_make_start_wall = time.time()
                 ru_start = (
                     resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime + resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime
                     if resource is not None else 0.0
@@ -114,25 +115,27 @@ def run_developer_simulation(
                     capture_output=True,
                     text=True,
                 )
-                t_make_end = time.time()
+                t_make_end = time.monotonic()
+                t_make_end_wall = time.time()
                 ru_end = (
                     resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime + resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime
                     if resource is not None else 0.0
                 )
-                t_make_dur = t_make_end - t_make_start
-                durations.append(t_make_dur)
+                build_wall_s = t_make_end - t_make_start
+                durations.append(build_wall_s)
 
                 cpu_s = max(0.0, ru_end - ru_start)
-                cpu_share = (cpu_s / t_make_dur) if t_make_dur > 0 else 0.0
+                cpu_share = (cpu_s / build_wall_s) if build_wall_s > 0 else 0.0
 
                 if jsonl_f is not None:
                     record = {
                         "cycle": i,
                         "t_save": t_save,
                         "delay": delay,
-                        "t_make_start": t_make_start,
-                        "t_make_end": t_make_end,
-                        "duration_s": t_make_dur,
+                        "t_make_start": t_make_start_wall,
+                        "t_make_end": t_make_end_wall,
+                        "build_wall_s": build_wall_s,
+                        "duration_s": build_wall_s,
                         "cpu_s": cpu_s,
                         "cpu_share": cpu_share,
                         "exit_code": res.returncode,
@@ -143,7 +146,7 @@ def run_developer_simulation(
                 if res.returncode != 0:
                     print(f"  [make error] Exit code {res.returncode}:\n{res.stderr}")
                 else:
-                    print(f"  Build completed in {t_make_dur:.3f}s (cpu={cpu_s:.2f}s share={cpu_share*100:.1f}%, return code {res.returncode})")
+                    print(f"  Build completed in {build_wall_s:.3f}s (build_wall_s={build_wall_s:.6f}, cpu={cpu_s:.2f}s share={cpu_share*100:.1f}%, return code {res.returncode})")
 
             # 3. Inter-cycle gap
             if i < cycles and gap > 0:
