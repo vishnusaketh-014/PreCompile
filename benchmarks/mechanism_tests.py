@@ -39,12 +39,13 @@ DEFAULT_PROJECT_DIR = Path("/home/saketh/precompile-demo-heavy")
 DEFAULT_CPUSET = "0-1"
 
 
-def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
+def run_concurrency_rounds(rounds: int = 2000) -> Dict[str, Any]:
     print(f"\n================================================================================")
-    print(f"Running Concurrency Double-Claim Test ({rounds} rounds each: atomic vs non-atomic)")
+    print(f"Running Concurrency Tests: Atomic, Natural Race, and Hook-Forced Race")
     print(f"================================================================================")
 
-    # 1. Mode: atomic_claim = True
+    # 1. Mode: atomic_claim = True (unhooked, full rounds)
+    print(f"1. Evaluating atomic_claim=True ({rounds} rounds, 5 threads released by barrier)...")
     atomic_single = 0
     atomic_double = 0
 
@@ -72,7 +73,7 @@ def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
         results: List[bool] = []
         lock = threading.Lock()
 
-        def _worker(tid: int):
+        def _worker_atomic(tid: int):
             proc = ProcessInfo(
                 pid=20000 + tid,
                 ppid=1,
@@ -88,7 +89,7 @@ def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
             with lock:
                 results.append(claimed)
 
-        threads = [threading.Thread(target=_worker, args=(i,)) for i in range(num_threads)]
+        threads = [threading.Thread(target=_worker_atomic, args=(i,)) for i in range(num_threads)]
         for t in threads:
             t.start()
         for t in threads:
@@ -100,16 +101,17 @@ def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
         elif succ > 1:
             atomic_double += 1
 
-    # 2. Mode: atomic_claim = False (with interleaving hook)
-    non_atomic_single = 0
-    non_atomic_double = 0
+    # 2. Mode: atomic_claim = False (Natural Race without hook, full rounds)
+    print(f"2. Evaluating atomic_claim=False Natural Race ({rounds} rounds, 5 threads released by barrier, no hook)...")
+    natural_single = 0
+    natural_double = 0
 
     for r in range(rounds):
         backend = FakeCgroupBackend()
         manager = ReservationManager(
             cgroup_backend=backend,
             atomic_claim=False,
-            claim_interleave_hook=lambda: time.sleep(0.001),
+            claim_interleave_hook=None,
             starttime_reader=lambda pid: 1000 + (pid - 20000),
         )
         res = manager.arm(
@@ -126,10 +128,10 @@ def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
 
         num_threads = 5
         barrier = threading.Barrier(num_threads)
-        results: List[bool] = []
+        results = []
         lock = threading.Lock()
 
-        def _worker_non_atomic(tid: int):
+        def _worker_natural(tid: int):
             proc = ProcessInfo(
                 pid=20000 + tid,
                 ppid=1,
@@ -145,7 +147,7 @@ def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
             with lock:
                 results.append(claimed)
 
-        threads = [threading.Thread(target=_worker_non_atomic, args=(i,)) for i in range(num_threads)]
+        threads = [threading.Thread(target=_worker_natural, args=(i,)) for i in range(num_threads)]
         for t in threads:
             t.start()
         for t in threads:
@@ -153,22 +155,83 @@ def run_concurrency_rounds(rounds: int = 200) -> Dict[str, Any]:
 
         succ = sum(1 for x in results if x is True)
         if succ == 1:
-            non_atomic_single += 1
+            natural_single += 1
         elif succ > 1:
-            non_atomic_double += 1
+            natural_double += 1
+
+    # 3. Mode: atomic_claim = False (Hook-Forced Interleaving, 200 rounds)
+    forced_rounds = min(200, rounds)
+    print(f"3. Evaluating atomic_claim=False Hook-Forced Race ({forced_rounds} rounds, sleep hook)...")
+    forced_single = 0
+    forced_double = 0
+
+    for r in range(forced_rounds):
+        backend = FakeCgroupBackend()
+        manager = ReservationManager(
+            cgroup_backend=backend,
+            atomic_claim=False,
+            claim_interleave_hook=lambda: time.sleep(0.0005),
+            starttime_reader=lambda pid: 1000 + (pid - 20000),
+        )
+        res = manager.arm(
+            project_id="concurrency_proj",
+            prediction_id=r + 1,
+            tool_profile="default",
+            t_save_mono=time.monotonic(),
+            window_lo=0.0,
+            window_hi=10.0,
+            median_build_dur=5.0,
+            weight=500,
+            reason="concurrency_test",
+        )
+
+        num_threads = 5
+        barrier = threading.Barrier(num_threads)
+        results = []
+        lock = threading.Lock()
+
+        def _worker_forced(tid: int):
+            proc = ProcessInfo(
+                pid=20000 + tid,
+                ppid=1,
+                starttime_ticks=1000 + tid,
+                exe=Path("/usr/bin/gcc"),
+                cwd=Path("/tmp"),
+                cmdline=["gcc", "-c", "test.c"],
+                t_seen_monotonic=time.monotonic(),
+                t_start_monotonic=time.monotonic(),
+            )
+            barrier.wait()
+            claimed = manager.try_claim("concurrency_proj", proc, {proc.pid: proc})
+            with lock:
+                results.append(claimed)
+
+        threads = [threading.Thread(target=_worker_forced, args=(i,)) for i in range(num_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=2.0)
+
+        succ = sum(1 for x in results if x is True)
+        if succ == 1:
+            forced_single += 1
+        elif succ > 1:
+            forced_double += 1
 
     print("\nConcurrency Test Summary:")
-    print(f"  atomic_claim=True  ({rounds} rounds): Exactly 1 claim: {atomic_single}/{rounds} ({atomic_single/rounds*100:.1f}%), Double claims: {atomic_double}/{rounds} ({atomic_double/rounds*100:.1f}%)")
-    print(f"  atomic_claim=False ({rounds} rounds): Exactly 1 claim: {non_atomic_single}/{rounds} ({non_atomic_single/rounds*100:.1f}%), Double claims: {non_atomic_double}/{rounds} ({non_atomic_double/rounds*100:.1f}%)")
+    print(f"  atomic_claim=True  ({rounds} rounds): Exactly 1 claim: {atomic_single}/{rounds} ({atomic_single/rounds*100:.2f}%), Double claims: {atomic_double}/{rounds} ({atomic_double/rounds*100:.2f}%)")
+    print(f"  Natural Race       ({rounds} rounds): Exactly 1 claim: {natural_single}/{rounds} ({natural_single/rounds*100:.2f}%), Double claims: {natural_double}/{rounds} ({natural_double/rounds*100:.2f}%)")
+    print(f"  Hook-Forced Race   ({forced_rounds} rounds): Exactly 1 claim: {forced_single}/{forced_rounds} ({forced_single/forced_rounds*100:.2f}%), Double claims: {forced_double}/{forced_rounds} ({forced_double/forced_rounds*100:.2f}%)")
 
     assert atomic_double == 0, f"Expected 0 double claims with atomic_claim=True, got {atomic_double}"
-    assert non_atomic_double > 0, f"Expected >0 double claims with atomic_claim=False, got {non_atomic_double}"
+    assert forced_double > 0, f"Expected >0 double claims with forced hook, got {forced_double}"
 
     return {
         "status": "PASSED",
         "rounds": rounds,
-        "atomic_claim_true": {"single_claims": atomic_single, "double_claims": atomic_double},
-        "atomic_claim_false": {"single_claims": non_atomic_single, "double_claims": non_atomic_double},
+        "atomic_claim_true": {"single_claims": atomic_single, "double_claims": atomic_double, "double_claim_rate": atomic_double / rounds},
+        "atomic_claim_false_natural": {"single_claims": natural_single, "double_claims": natural_double, "double_claim_rate": natural_double / rounds},
+        "atomic_claim_false_forced": {"rounds": forced_rounds, "single_claims": forced_single, "double_claims": forced_double, "double_claim_rate": forced_double / forced_rounds},
     }
 
 
