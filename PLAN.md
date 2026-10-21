@@ -230,6 +230,7 @@ This roadmap outlines the 11 development steps to implement, test, and experimen
   - Pilot benchmark run executed across 8 blocks with 24 measured builds; verified 0 leftover cgroups and processes.
   - Step 10 close-outs completed (systemd actuation verification, status mode reporting, watcher scan rate transparency, steady-state smoke table, non-destructive kill-switch).
 
-- **Step 11b (Full Experimental Evaluation):** [PENDING]
-  - Full 50-run matrix execution across primary tiers and ablations.
-  - Final evaluation report and verification of all pre-registered success criteria.
+- **Step 11b (Full Experimental Evaluation):** [COMPLETED]
+  - Full evaluation matrix executed across Tier 1 (Scenario A: idle, moderate, high load), Tier 2 (Scenario B irregular delays, Scenario C save-only), and Tier 3 (Ablations A2, A3, A4, A5) totaling 94 blocks, 900 measured builds, and 200 save iterations.
+  - Final evaluation report and verification of all pre-registered success criteria (S1–S7) with step-down Holm-Bonferroni correction and 95% bootstrap confidence intervals.
+  - Verification of 0 leftover `precompile-res-*` cgroups and 0 orphaned background processes across all tiers.
