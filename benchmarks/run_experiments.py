@@ -1116,7 +1116,7 @@ class ExperimentRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="PreCompile Experiment Runner")
-    parser.add_argument("--tier", choices=["1", "2", "all"], default="1", help="Evaluation tier to execute")
+    parser.add_argument("--tier", choices=["1", "2", "3", "all"], default="1", help="Evaluation tier to execute")
     parser.add_argument("--pilot", action="store_true", default=False, help="Run pilot validation run")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Print plan without running")
     parser.add_argument("--resume", action="store_true", default=False, help="Resume previously interrupted run")
