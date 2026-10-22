@@ -1,24 +1,30 @@
 # PreCompile Evaluation: Pre-Registered Experiment Plan
 
-**Document Version:** 1.4.0  
-**Registration Timestamp:** 2026-10-22T07:30:00Z  
+**Document Version:** 1.5.0  
+**Registration Timestamp:** 2026-10-22T23:30:00Z  
 **Previous Registrations:**  
+- Version 1.4.0 (commit `1db72af`, 2026-10-22T07:29:33Z)  
 - Version 1.3.0 (commit `6be6aef`, 2026-10-20T19:45:51Z)  
 - Version 1.2.0 (commit `4051943`, 2026-10-20T16:22:34Z)  
 - Version 1.1.0 (commit `0a4d2cb`, 2026-10-20T10:45:00Z)  
 - Version 1.0.0 (commit `6bca5fc`, 2026-10-20T09:16:47Z)  
-**Stage Mapping:** Step 11a / Step 11b / Step 11c (System Design Specification Stage 11)  
+**Stage Mapping:** Step 11a / Step 11b / Step 11c / Step 11d (System Design Specification Stage 11)  
 **Execution Environment:** WSL2 Linux 6.18.33.2-microsoft-standard-WSL2 on 13th Gen Intel(R) Core(TM) i7-1355U (12 vCPUs, 7.6 GiB RAM)  
-**Transparency Statement:** This amended plan (Version 1.4.0) pre-registers two strictly bounded POST-HOC experiments and statistical corrections following the execution of Tier 1, Tier 2, and Tier 3 evaluations:
-1. **Post-Hoc Experiment 1: A3' Redefinition (Ablation Component Isolation Correction):**
-   In the Tier 3 evaluation, ablation condition A3 (`--ablation-no-contention-gate`) made 0 of 50 claims at idle. Examination of the block-scoped decision logs revealed that all 50 builds abstained with `abstain_cost` rather than arming. Under zero contention (idle load), the cost/benefit gate calculates estimated benefit as $B = S_{\text{cpu}} \times \text{contention} = 0.0\text{ s}$, which is strictly less than estimated reservation cost $C$. As a result, the cost gate shadowed the ablation, preventing the run from isolating the intended component (contention gating at idle). Plan v1.4 redefines A3' as "contention gate AND the contention-scaled cost gate disabled" (`--ablation-no-contention-gate` together with `--no-cost-gate`), allowing reservations to arm at idle once the confidence gate passes. A3' is executed on Scenario A Idle (50 builds, 5 blocks of 10) under the exact same Latin-square rotation, CPUSet pinning, and warm-up protocol. The original A3 result is retained in all tables and explicitly labelled "as run (did not ablate)".
-2. **Post-Hoc Experiment 2: Scenario C' Redesign (Save-Only with Pre-Warmed Model):**
-   In Tier 2, Scenario C was executed starting from an empty cell database ($n = 0$). Under the Confidence Gate specification, $n < 5$ delay samples guarantees unconditional abstention (`can_predict=False`), making the 0% arming rate completely vacuous and uninformative regarding gating behavior. Plan v1.4 adds Scenario C' (post-hoc): evaluated under C2 at moderate load, starting with 12 warm-up builds in auto mode with a stable delay ($1.8\text{s}$) so that the model is open ($n \ge 5$, scored predictions $\ge 5$, and `can_arm=True`), followed immediately by 50 save-only events (no builds) at moderate load. Scenario C' reports: reservations armed per save, how many saves pass before hit-rate decay drops the gate (`can_arm=False`), how reservations expire and are cleaned up, time with the watcher intensified, and false-reservation rate. The original Scenario C result is retained and labelled "as run (empty model, vacuous)".
-3. **Statistical Correction for $H_{0,13}$ (Fisher's Exact Test):**
-   In Tier 3, comparing A2 (2 unboosted builds out of 30) with C2 (0 unboosted builds out of 30) was previously reported as "REJECT $H_{0,13}$". Re-analysis using Fisher's exact test on the $2 \times 2$ contingency table yields a two-sided $p$-value of $0.4915$ (one-sided $p = 0.2458$). At $\alpha = 0.05$, the null hypothesis $H_{0,13}$ CANNOT be rejected. The wording in all reports is corrected to FAIL TO REJECT $H_{0,13}$.
-4. **Scenario B Empirical Reality Check:**
-   In Tier 2, C2 did not stay closed in Scenario B as previously described. In the workload simulator, invoking `--cycles 1` repeatedly without per-build seeds caused measured builds to receive an identical delay of ~12.96s (seed 42). While the confidence gate was closed during the first 5 saves (`Observation-only warm-up: scored predictions < 5`), the consistent delays lowered EWMA variance, opening the gate on save 6. Consequently, C2 armed 6, 9, and 10 builds across blocks (25 of 30 claimed). Under the pre-registered definition ($R_{\text{false}} = \text{expired unclaimed} / \text{total reservations armed}$), $R_{\text{false}} = 0.0\%$, but predictions initially had very wide windows ($16.8\text{s}$ collapsing to $1.7\text{s}$), keeping reservations and intensified watcher active for long durations and incurring ~2.2%–3.0% daemon CPU overhead.
-5. **Preservation of Existing Data:** Tiers 1, 2, and 3 data remain strictly immutable and are not rerun or overwritten. The two post-hoc experiments are clearly segregated and labeled post-hoc.
+**Transparency Statement:** This amended plan (Version 1.5.0) pre-registers the post-hoc re-run specifications and statistical corrections resulting from the Step 11d Data Integrity Audit:
+1. **Audit Findings and Motivation for v1.5 Amendment:**
+   - **Scenario B Non-Irregular Delay Defect:** In Tier 2 and Tier 3, invoking `build_on_save.py` with `--cycles 1` without explicit `--seed` re-initialized Python's RNG with default seed 42 on every measured build. Consequently, every measured build in Scenario B received an identical delay of ~12.968s ($CV \approx 0.0002$), invalidating Scenario B as an irregular workload test.
+   - **Scenario A Delay Invariance:** Similarly, Scenario A builds received the identical first draw of $N(1.8, 0.1)$ under seed 42 (~1.786s), evaluating a constant rhythm rather than normal jitter.
+   - **Post-Hoc A3' Idle Host Confound:** In the post-hoc A3' run, builds took ~3.88s at idle (both reserved and unboosted holdouts alike, and even observation-only warmups took 4.0–4.2s), proving that the slowdown was caused by an external host machine-state anomaly (CPU power/thermal throttling at 07:39 UTC) rather than anticipatory cgroup actuation.
+   - **Scenario C' Save Supersession Defect:** Rapid saves (every 2.0s) continually overwrite `_pending_saves`, so earlier saves are superseded before the correlation window expires. Because only the active pending save is checked for `no_build`, superseded saves remain unscored, keeping the hit-rate at 100% and preventing the gate from ever closing.
+2. **Pre-Registered Specifications for Designed Re-Runs (Analysis Only, Not Run):**
+   - **(a) Scenario B Re-Run (C0, C1, C2, C3, A2):** Re-run at moderate load with independent delays drawn from $U(0.5, 20.0)\text{ s}$ per build (`seed = base_seed + build_index`), 30 measured builds per condition (3 blocks of 10) preceded by 12 warm-up builds drawn from the same uniform distribution. Harness assertion enforces observed $CV > 0.40$ or aborts immediately.
+   - **(b) Scenario A Repeat Decision:** Repeating Scenario A would require 600 builds in Tier 1 (~140 min) and 150 builds in Tier 3 (~35 min), totaling ~175 minutes. Because the evaluated 1.786s delay represents a valid constant save rhythm and falls directly within the prediction window $[1.4\text{s}, 2.2\text{s}]$, Scenario A will NOT be repeated; the lack of distributional jitter is documented as an empirical limitation.
+   - **(c) A3' Interleaved Idle Re-Run:** To eliminate machine-state confounds, A3' (`--ablation-no-contention-gate --no-cost-gate`) will be re-run interleaved in the same Latin-square rotating blocks as C0 and C2 at idle load (30 measured builds each across 3 blocks of 10 builds, total 90 measured builds plus 24 warmups).
+   - **(d) Scenario C' Reporting:** No re-run. Formally report the architectural finding regarding save supersession and unscored predictions.
+3. **Estimated Execution Time Arithmetic for Re-Runs:**
+   - **Scenario B Re-Run:** 5 conditions $\times$ 42 builds = 210 builds. Mean delay = $(0.5 + 20.0)/2 = 10.25\text{ s}$. Build times: C0 $\approx 4.8\text{ s}$, C1/C2/C3/A2 $\approx 2.1\text{ s}$, mean $\approx 2.64\text{ s}$. Inter-build settlement = $1.0\text{ s}$. Total time per build = $10.25 + 2.64 + 1.0 = 13.89\text{ s}$. Total duration = $210 \times 13.89\text{ s} = 2,917\text{ s} \approx \mathbf{48.6\text{ minutes}}$.
+   - **A3' Interleaved Idle Re-Run:** 3 conditions $\times$ 30 builds = 90 measured builds + 24 warmups = 114 builds. Delay = $1.80\text{ s}$, idle build duration $\approx 1.83\text{ s}$, settlement = $1.0\text{ s}$. Total time per build = $1.80 + 1.83 + 1.0 = 4.63\text{ s}$. Total duration = $114 \times 4.63\text{ s} = 528\text{ s} \approx \mathbf{8.8\text{ minutes}}$.
+   - **Total Estimated Re-Run Time:** $48.6 + 8.8 = \mathbf{57.4\text{ minutes}}$.
 
 ---
 
