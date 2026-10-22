@@ -121,62 +121,84 @@ def run_condition_microbench(
     if condition == "c2-full":
         daemon_cmd.extend(["--holdout-prob", "0.0"])  # 0 holdouts to capture 40 consecutive claims
 
-    log_fp = open(log_file, "w")
-    daemon_proc = subprocess.Popen(daemon_cmd, stdout=log_fp, stderr=subprocess.STDOUT, text=True)
-
-    # Wait for daemon PID file
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        if pid_file.exists():
-            break
-        time.sleep(0.05)
-
     samples: List[Dict[str, Any]] = []
+    daemon_proc: Optional[subprocess.Popen] = None
+    log_fp = open(log_file, "a")
 
     try:
-        print(f"Executing save-and-build iterations until {target_claims} claims collected...")
+        print(f"Executing save-and-build iterations with restart pattern (restart daemon every 10 builds) until {target_claims} claims collected...")
         cycle = 0
+        block_idx = 0
         while len(samples) < target_claims:
-            cycle += 1
-            sim_cmd = [
-                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
-                "--project", str(project_dir),
-                "--cycles", "1",
-                "--edit-file", "big.c",
-                "--delay-mean", "1.8",
-                "--delay-jitter", "0.05",
-                "--mode", "auto",
-                "--cpuset", cpuset,
-            ]
-            t0 = time.monotonic()
-            sim_res = subprocess.run(sim_cmd, timeout=60, capture_output=True, text=True)
-            dur = time.monotonic() - t0
+            block_idx += 1
+            print(f"  [Block {block_idx}] Launching fresh daemon process for 10 builds...")
+            if pid_file.exists():
+                try:
+                    pid_file.unlink()
+                except Exception:
+                    pass
 
-            # Query database for claimed reservation
-            with sqlite3.connect(db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cur = conn.cursor()
-                cur.execute("SELECT * FROM reservations WHERE claimed_pid IS NOT NULL ORDER BY rowid DESC LIMIT 1")
-                r_row = cur.fetchone()
+            daemon_proc = subprocess.Popen(daemon_cmd, stdout=log_fp, stderr=subprocess.STDOUT, text=True)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if pid_file.exists():
+                    break
+                time.sleep(0.05)
 
-            if r_row is not None:
-                r_dict = dict(r_row)
-                res_id = r_dict["id"]
-                # Only record if we haven't already processed this reservation id
-                if not any(s["res_id"] == res_id for s in samples):
-                    claim_lat_ms = (r_dict["claim_latency_s"] * 1000.0) if r_dict.get("claim_latency_s") is not None else None
-                    samples.append({
-                        "res_id": res_id,
-                        "cycle": cycle,
-                        "claim_latency_ms": claim_lat_ms,
-                        "claimed_pid": r_dict.get("claimed_pid"),
-                        "group_name": r_dict.get("group_name"),
-                    })
-                    print(f"  Claim {len(samples):>2}/{target_claims}: res={res_id} lat={claim_lat_ms:.1f}ms")
+            builds_this_block = 0
+            while builds_this_block < 10 and len(samples) < target_claims:
+                cycle += 1
+                builds_this_block += 1
+                sim_cmd = [
+                    sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                    "--project", str(project_dir),
+                    "--cycles", "1",
+                    "--edit-file", "big.c",
+                    "--delay-mean", "1.8",
+                    "--delay-jitter", "0.05",
+                    "--mode", "auto",
+                    "--cpuset", cpuset,
+                ]
+                t0 = time.monotonic()
+                sim_res = subprocess.run(sim_cmd, timeout=60, capture_output=True, text=True)
+                dur = time.monotonic() - t0
+
+                # Query database for claimed reservation
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM reservations WHERE claimed_pid IS NOT NULL ORDER BY rowid DESC LIMIT 1")
+                    r_row = cur.fetchone()
+
+                if r_row is not None:
+                    r_dict = dict(r_row)
+                    res_id = r_dict["id"]
+                    # Only record if we haven't already processed this reservation id
+                    if not any(s["res_id"] == res_id for s in samples):
+                        claim_lat_ms = (r_dict["claim_latency_s"] * 1000.0) if r_dict.get("claim_latency_s") is not None else None
+                        samples.append({
+                            "res_id": res_id,
+                            "cycle": cycle,
+                            "claim_latency_ms": claim_lat_ms,
+                            "claimed_pid": r_dict.get("claimed_pid"),
+                            "group_name": r_dict.get("group_name"),
+                        })
+                        print(f"  Claim {len(samples):>2}/{target_claims}: res={res_id} lat={claim_lat_ms:.1f}ms")
+
+            # Cleanly stop daemon after 10 builds for restart pattern
+            print(f"  [Block {block_idx}] Stopping daemon after {builds_this_block} builds...")
+            if daemon_proc and daemon_proc.poll() is None:
+                daemon_proc.send_signal(signal.SIGTERM)
+                try:
+                    daemon_proc.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    daemon_proc.kill()
+                    daemon_proc.wait(timeout=2.0)
+            time.sleep(1.0)
 
     finally:
-        # Stop daemon
-        if daemon_proc.poll() is None:
+        # Ensure daemon stopped
+        if daemon_proc and daemon_proc.poll() is None:
             daemon_proc.send_signal(signal.SIGTERM)
             try:
                 daemon_proc.wait(timeout=5.0)

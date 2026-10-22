@@ -517,6 +517,33 @@ class ExperimentRunner:
                     "mode": "auto",
                 })
 
+        if self.tier in ("post-hoc", "all"):
+            # Post-Hoc Experiment 1: A3' (no contention gate AND no cost gate) on Scenario A at idle
+            # 50 builds (5 blocks of 10)
+            for cy in range(1, 6):
+                plan.append({
+                    "tier": "post-hoc",
+                    "scenario": "A",
+                    "load_level": "idle",
+                    "condition": "a3-prime",
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": self.warmup_builds if cy == 1 else 0,
+                    "mode": "auto",
+                })
+            # Post-Hoc Experiment 2: Scenario C' (Save-Only with Pre-Warmed Model)
+            # C2 only, 12 warm-up builds in auto mode, then 50 saves with no builds at moderate load
+            plan.append({
+                "tier": "post-hoc",
+                "scenario": "C'",
+                "load_level": "moderate",
+                "condition": "c2-full",
+                "cycle": 1,
+                "builds_per_block": 50,
+                "warmups": 12,
+                "mode": "save-only-prewarmed",
+            })
+
         return plan
 
     def _start_load(self, load_level: str, previous_load: Optional[str] = None) -> None:
@@ -568,6 +595,8 @@ class ExperimentRunner:
             cmd.extend(["--ablation-no-confidence-gate"])
         elif condition == "a3-nocont":
             cmd.extend(["--ablation-no-contention-gate"])
+        elif condition == "a3-prime":
+            cmd.extend(["--ablation-no-contention-gate", "--no-cost-gate"])
         elif condition == "a4-fixedwin":
             cmd.extend(["--ablation-fixed-window", "0.0,5.0"])
         elif condition == "a5-noholdout":
@@ -722,7 +751,22 @@ class ExperimentRunner:
                             subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
                             can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
                             print(f"  [warmup-done] Scenario B: builds=12, gate_open={can_arm}, n={n_samp}, scored={scored}, hit_rate={h_rate:.2f}, reasons={reasons}")
-                        elif cn in ("c2-full", "a2-noconf", "a3-nocont", "a4-fixedwin", "a5-noholdout"):
+                        elif sc == "C'":
+                            print(f"  Running 12 warm-up builds (mode=auto) to pre-warm the model...")
+                            sim_cmd = [
+                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                "--project", str(self.project_dir),
+                                "--cycles", "12",
+                                "--edit-file", "big.c",
+                                "--delay-mean", "1.8",
+                                "--delay-jitter", "0.1",
+                                "--mode", "auto",
+                                "--cpuset", self.cpuset,
+                            ]
+                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
+                            print(f"  [warmup-done] Scenario C': builds=12, gate_open={can_arm}, n={n_samp}, scored={scored}, hit_rate={h_rate:.2f}, reasons={reasons}")
+                        elif cn in ("c2-full", "a2-noconf", "a3-nocont", "a3-prime", "a4-fixedwin", "a5-noholdout"):
                             print(f"  Running initial 12 warm-up builds (mode={sim_mode})...")
                             sim_cmd = [
                                 sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
@@ -794,7 +838,7 @@ class ExperimentRunner:
                     min_build_id_start = min_build_id
 
                     # 5. Execute workload
-                    if sim_mode == "save-only":
+                    if sim_mode in ("save-only", "save-only-prewarmed"):
                         print(f"  Running {num_items} save-only iterations...")
                         sim_cmd = [
                             sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
@@ -1116,17 +1160,24 @@ class ExperimentRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="PreCompile Experiment Runner")
-    parser.add_argument("--tier", choices=["1", "2", "3", "all"], default="1", help="Evaluation tier to execute")
+    parser.add_argument("--tier", choices=["1", "2", "3", "post-hoc", "all"], default="1", help="Evaluation tier to execute")
     parser.add_argument("--pilot", action="store_true", default=False, help="Run pilot validation run")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Print plan without running")
     parser.add_argument("--resume", action="store_true", default=False, help="Resume previously interrupted run")
     parser.add_argument("--force", action="store_true", default=False, help="Force execution even if working tree is dirty")
     parser.add_argument("--cpuset", default=DEFAULT_CPUSET, help="CPU affinity set (default: 0-1)")
-    parser.add_argument("--output-dir", default=str(RESULTS_DIR), help="Results output directory")
+    parser.add_argument("--output-dir", default=None, help="Results output directory")
     parser.add_argument("--project-dir", default=None, help="Heavy project directory path")
     args = parser.parse_args()
 
     proj_dir = Path(args.project_dir) if args.project_dir else None
+    if args.output_dir:
+        out_dir = Path(args.output_dir)
+    elif args.tier == "post-hoc":
+        out_dir = SCRIPT_DIR / "results_posthoc"
+    else:
+        out_dir = RESULTS_DIR
+
     runner = ExperimentRunner(
         tier=args.tier,
         pilot=args.pilot,
@@ -1134,7 +1185,7 @@ def main():
         resume=args.resume,
         force=args.force,
         cpuset=args.cpuset,
-        output_dir=Path(args.output_dir),
+        output_dir=out_dir,
         project_dir=proj_dir,
     )
     runner.run()

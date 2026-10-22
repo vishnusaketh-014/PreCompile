@@ -71,6 +71,11 @@ class TestExperimentHarness(unittest.TestCase):
         # Tier 2: 12 (Scen B) + 4 (Scen C) = 16 blocks
         self.assertEqual(len(plan_tier2), 16)
 
+        runner_posthoc = ExperimentRunner(tier="post-hoc", pilot=False, dry_run=True, output_dir=self.temp_dir)
+        plan_posthoc = runner_posthoc.get_plan()
+        # Post-hoc: 5 (A3' Scenario A idle) + 1 (Scenario C' c2-full) = 6 blocks
+        self.assertEqual(len(plan_posthoc), 6)
+
     def test_dynamic_header_metadata(self) -> None:
         """Test dynamic environment metadata extraction."""
         meta = get_system_metadata(cpuset="0-1", tier="1", pilot=True)
