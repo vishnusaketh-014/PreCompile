@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, "/mnt/c/Os Project")
 
 from precompile.stats import mann_whitney_u, median, percentile
-from benchmarks.analyze_experiments import analyze_experiments
+from benchmarks.independent_verify import compute_raw_cell_metrics
 
 BENCHMARKS_DIR = Path("/mnt/c/Os Project/benchmarks")
 
@@ -79,44 +79,35 @@ def main() -> None:
                 if line.strip():
                     blocks.append(json.loads(line))
 
-    # 2. Automated Cross-Check against analyze_experiments.py
-    print("\n--- Running Automated Cross-Check against analyze_experiments.py ---")
+    # 2. Automated Cross-Check against independent raw JSONL computation
+    print("\n--- Running Automated Cross-Check against independent_verify.py (raw results.jsonl) ---")
+    raw_metrics = compute_raw_cell_metrics()
     cross_check_passed = True
-    for dname in raw_dirs:
-        jfp = BENCHMARKS_DIR / dname / "results.jsonl"
-        bmp = BENCHMARKS_DIR / dname / "block_metrics.jsonl"
-        if not jfp.exists():
+    
+    # Group our loaded records into cells
+    table_cells: Dict[Tuple[str, str, str, str], List[float]] = {}
+    for r in records:
+        k = (str(r["tier"]), r["scenario"], r["load_level"], r["condition"])
+        table_cells.setdefault(k, []).append(r["build_wall_s"])
+
+    for k, clist in sorted(table_cells.items()):
+        raw_info = raw_metrics.get(k)
+        if not raw_info:
+            print(f"FAILED: Cell {k} missing in raw data metrics!")
+            cross_check_passed = False
             continue
-        analyzer_res = analyze_experiments(jfp, block_metrics_path=bmp if bmp.exists() else None)
-        analyzer_summary = {
-            (str(item["tier"]), item["scenario"], item["load_level"], item["condition"]): item
-            for item in analyzer_res["metrics_summary"]
-        }
-
-        # Compare with raw records in this directory
-        dir_recs = [json.loads(l) for l in jfp.read_text(encoding="utf-8").splitlines() if l.strip()]
-        dir_measured = [r for r in dir_recs if not r.get("is_warmup", False)]
-        dir_cells = {}
-        for r in dir_measured:
-            k = (str(r["tier"]), r["scenario"], r["load_level"], r["condition"])
-            dir_cells.setdefault(k, []).append(r)
-
-        for k, clist in dir_cells.items():
-            expected = analyzer_summary.get(k)
-            if not expected:
-                print(f"FAILED: Cell {k} missing in analyzer output!")
-                cross_check_passed = False
-                continue
-            obs_n = len(clist)
-            obs_med = median([r["build_wall_s"] for r in clist])
-            exp_n = expected["count"]
-            exp_med = expected["med_wall_s"]
-            if obs_n != exp_n or abs(obs_med - exp_med) > 0.001:
-                print(f"FAILED: Mismatch in {k}: N ({obs_n} vs {exp_n}), Med ({obs_med:.4f} vs {exp_med:.4f})")
-                cross_check_passed = False
+        obs_n = len(clist)
+        obs_med = median(clist)
+        exp_n = int(raw_info["n"])
+        exp_med = raw_info["median"]
+        if obs_n != exp_n or abs(obs_med - exp_med) > 0.0001:
+            print(f"FAILED: Mismatch in {k}: N ({obs_n} vs {exp_n}), Med ({obs_med:.4f} vs {exp_med:.4f})")
+            cross_check_passed = False
+        else:
+            print(f"  [cross_check] {k[0]:<8} {k[1]:<3} {k[2]:<8} {k[3]:<14} N={obs_n} Med={obs_med:.4f}s -> MATCH")
 
     if cross_check_passed:
-        print("ALL CELLS PASSED AUTOMATED CROSS-CHECK AGAINST analyze_experiments.py!")
+        print("ALL CELLS PASSED AUTOMATED CROSS-CHECK AGAINST INDEPENDENT RAW JSONL PARSER!")
     else:
         print("WARNING: CROSS-CHECK FAILED!")
         sys.exit(1)
