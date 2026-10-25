@@ -144,9 +144,9 @@ def run_developer_simulation(
                     jsonl_f.flush()
 
                 if res.returncode != 0:
-                    print(f"  [make error] Exit code {res.returncode}:\n{res.stderr}")
+                    print(f"  [make error] Exit code {res.returncode} (delay_s={delay:.6f}):\n{res.stderr}")
                 else:
-                    print(f"  Build completed in {build_wall_s:.3f}s (build_wall_s={build_wall_s:.6f}, cpu={cpu_s:.2f}s share={cpu_share*100:.1f}%, return code {res.returncode})")
+                    print(f"  Build completed in {build_wall_s:.3f}s (build_wall_s={build_wall_s:.6f}, delay_s={delay:.6f}, cpu={cpu_s:.2f}s share={cpu_share*100:.1f}%, return code {res.returncode})")
 
             # 3. Inter-cycle gap
             if i < cycles and gap > 0:

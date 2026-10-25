@@ -282,6 +282,32 @@ def read_gate_state_from_db(db_path: Path, project_id: str = "heavy") -> Tuple[b
         return False, 0, 0, 0.0, [f"Error reading DB: {e}"]
 
 
+def check_delay_distribution_assertion(sim_mode: str, delays: List[float]) -> None:
+    """Harness assertions for build delay distributions (Plan v1.6 / Step 11e):
+    - manual-irregular: abort if CV < 0.4 after 10 builds
+    - auto: abort if stdev < 0.03s after 10 builds
+    """
+    if len(delays) < 10:
+        return
+    import statistics
+    mean_val = statistics.mean(delays[:10])
+    sd_val = statistics.stdev(delays[:10]) if len(delays[:10]) > 1 else 0.0
+    cv_val = (sd_val / mean_val) if mean_val > 0 else 0.0
+
+    if sim_mode == "manual-irregular":
+        if cv_val < 0.4:
+            raise AssertionError(
+                f"Harness assertion failed: Scenario B manual-irregular delay CV={cv_val:.4f} < 0.40 after 10 builds. "
+                f"(mean={mean_val:.2f}s, stdev={sd_val:.4f}s, min={min(delays[:10]):.2f}s, max={max(delays[:10]):.2f}s)"
+            )
+    elif sim_mode == "auto":
+        if sd_val < 0.03:
+            raise AssertionError(
+                f"Harness assertion failed: Scenario A auto delay stdev={sd_val:.4f}s < 0.030s after 10 builds. "
+                f"(mean={mean_val:.2f}s, stdev={sd_val:.4f}s, min={min(delays[:10]):.2f}s, max={max(delays[:10]):.2f}s)"
+            )
+
+
 class ExperimentRunner:
     def __init__(
         self,
@@ -290,6 +316,7 @@ class ExperimentRunner:
         dry_run: bool = False,
         resume: bool = False,
         force: bool = False,
+        base_seed: int = 42,
         cpuset: str = DEFAULT_CPUSET,
         output_dir: Path = RESULTS_DIR,
         project_dir: Optional[Path] = None,
@@ -299,6 +326,8 @@ class ExperimentRunner:
         self.dry_run = dry_run
         self.resume = resume
         self.force = force
+        self.base_seed = base_seed
+        self.build_counter = 0
         self.cpuset = cpuset
         self.output_dir = Path(output_dir)
         self.project_dir = project_dir or Path("/home/saketh/precompile-demo-heavy")
@@ -332,7 +361,7 @@ class ExperimentRunner:
         print(f"  Git commit: {meta.get('git_commit', 'unknown')} | dirty: {meta.get('git_dirty', False)}")
 
         # Refusal check on dirty tree for non-pilot runs (Item 6)
-        if not self.pilot and self.tier in ("1", "2", "all"):
+        if not self.pilot and self.tier in ("1", "2", "3", "post-hoc", "rerun-b", "rerun-a3prime", "rerun-a-high", "all"):
             if (meta.get("git_dirty") or meta.get("plan_differs_from_head")) and not self.force:
                 print(
                     f"Error: Refusing to start non-pilot {self.tier} run: working tree dirty={meta.get('git_dirty')} "
@@ -544,6 +573,60 @@ class ExperimentRunner:
                 "mode": "save-only-prewarmed",
             })
 
+        if self.tier == "rerun-b":
+            # Scenario B re-run (Plan v1.6): C0, C1, C2, C3, A2 at moderate load
+            # 30 measured builds each across 3 rotating blocks of 10 builds (total 15 blocks)
+            # Delays drawn independently from U(0.5, 20.0) s per build; 12 warm-ups on cycle 1
+            conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static", "a2-noconf"]
+            block_seq = generate_balanced_blocks(conds, 3)
+            for cy, cond in block_seq:
+                plan.append({
+                    "tier": "rerun-b",
+                    "scenario": "B",
+                    "load_level": "moderate",
+                    "condition": cond,
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": 12 if cy == 1 else 0,
+                    "mode": "manual-irregular",
+                })
+
+        if self.tier == "rerun-a3prime":
+            # Post-Hoc A3' Interleaved with C0 and C2 at idle load (Plan v1.6)
+            # 30 measured builds each across 3 rotating blocks of 10 builds (total 9 blocks)
+            # Delays drawn from N(1.8, 0.1) s; 12 warm-ups on cycle 1
+            conds = ["c0-baseline", "c2-full", "a3-prime"]
+            block_seq = generate_balanced_blocks(conds, 3)
+            for cy, cond in block_seq:
+                plan.append({
+                    "tier": "rerun-a3prime",
+                    "scenario": "A",
+                    "load_level": "idle",
+                    "condition": cond,
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": 12 if cy == 1 else 0,
+                    "mode": "auto",
+                })
+
+        if self.tier == "rerun-a-high":
+            # Scenario A High-load repeat (Plan v1.6): C0, C1, C2, C3 at high load
+            # 50 measured builds each across 5 rotating blocks of 10 builds (total 20 blocks)
+            # Delays drawn from N(1.8, 0.1) s with independent jitter; 12 warm-ups on cycle 1
+            conds = ["c0-baseline", "c1-reactive", "c2-full", "c3-static"]
+            block_seq = generate_balanced_blocks(conds, 5)
+            for cy, cond in block_seq:
+                plan.append({
+                    "tier": "rerun-a-high",
+                    "scenario": "A",
+                    "load_level": "high",
+                    "condition": cond,
+                    "cycle": cy,
+                    "builds_per_block": 10,
+                    "warmups": 12 if cy == 1 else 0,
+                    "mode": "auto",
+                })
+
         return plan
 
     def _start_load(self, load_level: str, previous_load: Optional[str] = None) -> None:
@@ -738,51 +821,59 @@ class ExperimentRunner:
                     if warmups > 0:
                         if sc == "B":
                             print(f"  Running 12 warm-up builds with irregular delays (mode=manual-irregular)...")
-                            sim_cmd = [
-                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
-                                "--project", str(self.project_dir),
-                                "--cycles", "12",
-                                "--edit-file", "big.c",
-                                "--delay-mean", "1.8",
-                                "--delay-jitter", "0.1",
-                                "--mode", "manual-irregular",
-                                "--cpuset", self.cpuset,
-                            ]
-                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            for _ in range(12):
+                                self.build_counter += 1
+                                sim_cmd = [
+                                    sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                    "--project", str(self.project_dir),
+                                    "--cycles", "1",
+                                    "--edit-file", "big.c",
+                                    "--mode", "manual-irregular",
+                                    "--cpuset", self.cpuset,
+                                    "--seed", str(self.base_seed + self.build_counter),
+                                ]
+                                subprocess.run(sim_cmd, timeout=60, check=True, capture_output=True)
                             can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
                             print(f"  [warmup-done] Scenario B: builds=12, gate_open={can_arm}, n={n_samp}, scored={scored}, hit_rate={h_rate:.2f}, reasons={reasons}")
                         elif sc == "C'":
                             print(f"  Running 12 warm-up builds (mode=auto) to pre-warm the model...")
-                            sim_cmd = [
-                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
-                                "--project", str(self.project_dir),
-                                "--cycles", "12",
-                                "--edit-file", "big.c",
-                                "--delay-mean", "1.8",
-                                "--delay-jitter", "0.1",
-                                "--mode", "auto",
-                                "--cpuset", self.cpuset,
-                            ]
-                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            for _ in range(12):
+                                self.build_counter += 1
+                                sim_cmd = [
+                                    sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                    "--project", str(self.project_dir),
+                                    "--cycles", "1",
+                                    "--edit-file", "big.c",
+                                    "--delay-mean", "1.8",
+                                    "--delay-jitter", "0.1",
+                                    "--mode", "auto",
+                                    "--cpuset", self.cpuset,
+                                    "--seed", str(self.base_seed + self.build_counter),
+                                ]
+                                subprocess.run(sim_cmd, timeout=60, check=True, capture_output=True)
                             can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
                             print(f"  [warmup-done] Scenario C': builds=12, gate_open={can_arm}, n={n_samp}, scored={scored}, hit_rate={h_rate:.2f}, reasons={reasons}")
                         elif cn in ("c2-full", "a2-noconf", "a3-nocont", "a3-prime", "a4-fixedwin", "a5-noholdout"):
                             print(f"  Running initial 12 warm-up builds (mode={sim_mode})...")
-                            sim_cmd = [
-                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
-                                "--project", str(self.project_dir),
-                                "--cycles", "12",
-                                "--edit-file", "big.c",
-                                "--delay-mean", "1.8",
-                                "--delay-jitter", "0.1",
-                                "--mode", sim_mode,
-                                "--cpuset", self.cpuset,
-                            ]
-                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            for _ in range(12):
+                                self.build_counter += 1
+                                sim_cmd = [
+                                    sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                    "--project", str(self.project_dir),
+                                    "--cycles", "1",
+                                    "--edit-file", "big.c",
+                                    "--delay-mean", "1.8",
+                                    "--delay-jitter", "0.1",
+                                    "--mode", sim_mode,
+                                    "--cpuset", self.cpuset,
+                                    "--seed", str(self.base_seed + self.build_counter),
+                                ]
+                                subprocess.run(sim_cmd, timeout=60, check=True, capture_output=True)
                             warmup_count = 12
                             can_arm, n_samp, scored, h_rate, reasons = read_gate_state_from_db(db_path)
                             while warmup_count < 30 and not (can_arm and n_samp >= 5 and scored >= 5):
                                 print(f"  Gate not open yet (can_arm={can_arm}, n={n_samp}, scored={scored}). Running extra warm-up build #{warmup_count+1}...")
+                                self.build_counter += 1
                                 sim_single = [
                                     sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
                                     "--project", str(self.project_dir),
@@ -792,6 +883,7 @@ class ExperimentRunner:
                                     "--delay-jitter", "0.1",
                                     "--mode", sim_mode,
                                     "--cpuset", self.cpuset,
+                                    "--seed", str(self.base_seed + self.build_counter),
                                 ]
                                 subprocess.run(sim_single, timeout=60, check=True, capture_output=True)
                                 warmup_count += 1
@@ -804,17 +896,20 @@ class ExperimentRunner:
                                 )
                         else:
                             print(f"  Running {warmups} warm-up builds (mode={sim_mode})...")
-                            sim_cmd = [
-                                sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
-                                "--project", str(self.project_dir),
-                                "--cycles", str(warmups),
-                                "--edit-file", "big.c",
-                                "--delay-mean", "1.8",
-                                "--delay-jitter", "0.1",
-                                "--mode", sim_mode,
-                                "--cpuset", self.cpuset,
-                            ]
-                            subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
+                            for _ in range(warmups):
+                                self.build_counter += 1
+                                sim_cmd = [
+                                    sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
+                                    "--project", str(self.project_dir),
+                                    "--cycles", "1",
+                                    "--edit-file", "big.c",
+                                    "--delay-mean", "1.8",
+                                    "--delay-jitter", "0.1",
+                                    "--mode", sim_mode,
+                                    "--cpuset", self.cpuset,
+                                    "--seed", str(self.base_seed + self.build_counter),
+                                ]
+                                subprocess.run(sim_cmd, timeout=60, check=True, capture_output=True)
                             print(f"  [warmup-done] builds={warmups}")
 
                     # Settle after warm-up builds to allow post-build suppression tail (+0.3s) to expire
@@ -852,8 +947,11 @@ class ExperimentRunner:
                         subprocess.run(sim_cmd, timeout=300, check=True, capture_output=True)
                     else:
                         print(f"  Running {num_items} measured builds (mode={sim_mode})...")
+                        realised_delays: List[float] = []
                         for b_idx_in_block in range(num_items):
                             build_num = b_idx_in_block + 1
+                            self.build_counter += 1
+                            seed = self.base_seed + self.build_counter
                             sim_cmd = [
                                 sys.executable, str(SCRIPT_DIR / "build_on_save.py"),
                                 "--project", str(self.project_dir),
@@ -863,6 +961,7 @@ class ExperimentRunner:
                                 "--delay-jitter", "0.1",
                                 "--mode", sim_mode,
                                 "--cpuset", self.cpuset,
+                                "--seed", str(seed),
                             ]
                             t_start_build = time.time()
                             t0 = time.monotonic()
@@ -876,6 +975,15 @@ class ExperimentRunner:
                                 build_wall_s = float(m_bwall.group(1))
                             else:
                                 build_wall_s = dur_wall_fallback
+
+                            # Parse realised delay_s from stdout (Plan v1.6 / Step 11e)
+                            delay_s = 0.0
+                            m_delay = re.search(r"delay_s=([\d\.]+)", res.stdout)
+                            if not m_delay:
+                                m_delay = re.search(r"Waiting ([\d\.]+)s before triggering build", res.stdout)
+                            if m_delay:
+                                delay_s = float(m_delay.group(1))
+                            realised_delays.append(delay_s)
 
                             # Parse cpu_seconds from stdout of build_on_save
                             cpu_s = 0.0
@@ -974,6 +1082,7 @@ class ExperimentRunner:
                                 "block_build_index": b_idx_in_block,  # 0-based
                                 "build_index": build_num,             # 1-based
                                 "is_warmup": False,
+                                "delay_s": delay_s,
                                 "build_wall_s": build_wall_s,
                                 "duration_wall_s": build_wall_s,
                                 "daemon_duration_s": daemon_dur,
@@ -999,6 +1108,10 @@ class ExperimentRunner:
                             # Inter-build gap to allow post-build suppression tail (+0.3s) to expire
                             if b_idx_in_block < num_items - 1:
                                 time.sleep(1.0)
+
+                        # Check harness assertions on delay distribution after 10 builds (Plan v1.6)
+                        if len(realised_delays) >= 10:
+                            check_delay_distribution_assertion(sim_mode, realised_delays)
 
                 finally:
                     t_block_wall = max(0.001, time.monotonic() - t_block_start)
@@ -1160,11 +1273,17 @@ class ExperimentRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="PreCompile Experiment Runner")
-    parser.add_argument("--tier", choices=["1", "2", "3", "post-hoc", "all"], default="1", help="Evaluation tier to execute")
+    parser.add_argument(
+        "--tier",
+        choices=["1", "2", "3", "post-hoc", "rerun-b", "rerun-a3prime", "rerun-a-high", "all"],
+        default="1",
+        help="Evaluation tier or re-run to execute (Plan v1.6 adds rerun-b, rerun-a3prime, rerun-a-high)",
+    )
     parser.add_argument("--pilot", action="store_true", default=False, help="Run pilot validation run")
     parser.add_argument("--dry-run", action="store_true", default=False, help="Print plan without running")
     parser.add_argument("--resume", action="store_true", default=False, help="Resume previously interrupted run")
     parser.add_argument("--force", action="store_true", default=False, help="Force execution even if working tree is dirty")
+    parser.add_argument("--base-seed", type=int, default=42, help="Base random seed for builds (default: 42)")
     parser.add_argument("--cpuset", default=DEFAULT_CPUSET, help="CPU affinity set (default: 0-1)")
     parser.add_argument("--output-dir", default=None, help="Results output directory")
     parser.add_argument("--project-dir", default=None, help="Heavy project directory path")
@@ -1175,6 +1294,12 @@ def main():
         out_dir = Path(args.output_dir)
     elif args.tier == "post-hoc":
         out_dir = SCRIPT_DIR / "results_posthoc"
+    elif args.tier == "rerun-b":
+        out_dir = SCRIPT_DIR / "results_rerun_scen_b"
+    elif args.tier == "rerun-a3prime":
+        out_dir = SCRIPT_DIR / "results_rerun_a3_prime"
+    elif args.tier == "rerun-a-high":
+        out_dir = SCRIPT_DIR / "results_rerun_scen_a_high"
     else:
         out_dir = RESULTS_DIR
 
@@ -1184,6 +1309,7 @@ def main():
         dry_run=args.dry_run,
         resume=args.resume,
         force=args.force,
+        base_seed=args.base_seed,
         cpuset=args.cpuset,
         output_dir=out_dir,
         project_dir=proj_dir,

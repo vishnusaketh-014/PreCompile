@@ -1,30 +1,48 @@
 # PreCompile Evaluation: Pre-Registered Experiment Plan
 
-**Document Version:** 1.5.0  
-**Registration Timestamp:** 2026-10-22T23:30:00Z  
+**Document Version:** 1.6.0 (post-hoc)  
+**Registration Timestamp:** 2026-10-25T14:15:00Z  
 **Previous Registrations:**  
+- Version 1.5.0 (commit `00137ce`, 2026-10-22T23:30:00Z)  
 - Version 1.4.0 (commit `1db72af`, 2026-10-22T07:29:33Z)  
 - Version 1.3.0 (commit `6be6aef`, 2026-10-20T19:45:51Z)  
 - Version 1.2.0 (commit `4051943`, 2026-10-20T16:22:34Z)  
 - Version 1.1.0 (commit `0a4d2cb`, 2026-10-20T10:45:00Z)  
 - Version 1.0.0 (commit `6bca5fc`, 2026-10-20T09:16:47Z)  
-**Stage Mapping:** Step 11a / Step 11b / Step 11c / Step 11d (System Design Specification Stage 11)  
+**Stage Mapping:** Step 11a / Step 11b / Step 11c / Step 11d / Step 11e (System Design Specification Stage 11)  
 **Execution Environment:** WSL2 Linux 6.18.33.2-microsoft-standard-WSL2 on 13th Gen Intel(R) Core(TM) i7-1355U (12 vCPUs, 7.6 GiB RAM)  
-**Transparency Statement:** This amended plan (Version 1.5.0) pre-registers the post-hoc re-run specifications and statistical corrections resulting from the Step 11d Data Integrity Audit:
-1. **Audit Findings and Motivation for v1.5 Amendment:**
-   - **Scenario B Non-Irregular Delay Defect:** In Tier 2 and Tier 3, invoking `build_on_save.py` with `--cycles 1` without explicit `--seed` re-initialized Python's RNG with default seed 42 on every measured build. Consequently, every measured build in Scenario B received an identical delay of ~12.968s ($CV \approx 0.0002$), invalidating Scenario B as an irregular workload test.
-   - **Scenario A Delay Invariance:** Similarly, Scenario A builds received the identical first draw of $N(1.8, 0.1)$ under seed 42 (~1.786s), evaluating a constant rhythm rather than normal jitter.
-   - **Post-Hoc A3' Idle Host Confound:** In the post-hoc A3' run, builds took ~3.88s at idle (both reserved and unboosted holdouts alike, and even observation-only warmups took 4.0–4.2s), proving that the slowdown was caused by an external host machine-state anomaly (CPU power/thermal throttling at 07:39 UTC) rather than anticipatory cgroup actuation.
-   - **Scenario C' Save Supersession Defect:** Rapid saves (every 2.0s) continually overwrite `_pending_saves`, so earlier saves are superseded before the correlation window expires. Because only the active pending save is checked for `no_build`, superseded saves remain unscored, keeping the hit-rate at 100% and preventing the gate from ever closing.
-2. **Pre-Registered Specifications for Designed Re-Runs (Analysis Only, Not Run):**
-   - **(a) Scenario B Re-Run (C0, C1, C2, C3, A2):** Re-run at moderate load with independent delays drawn from $U(0.5, 20.0)\text{ s}$ per build (`seed = base_seed + build_index`), 30 measured builds per condition (3 blocks of 10) preceded by 12 warm-up builds drawn from the same uniform distribution. Harness assertion enforces observed $CV > 0.40$ or aborts immediately.
-   - **(b) Scenario A Repeat Decision:** Repeating Scenario A would require 600 builds in Tier 1 (~140 min) and 150 builds in Tier 3 (~35 min), totaling ~175 minutes. Because the evaluated 1.786s delay represents a valid constant save rhythm and falls directly within the prediction window $[1.4\text{s}, 2.2\text{s}]$, Scenario A will NOT be repeated; the lack of distributional jitter is documented as an empirical limitation.
-   - **(c) A3' Interleaved Idle Re-Run:** To eliminate machine-state confounds, A3' (`--ablation-no-contention-gate --no-cost-gate`) will be re-run interleaved in the same Latin-square rotating blocks as C0 and C2 at idle load (30 measured builds each across 3 blocks of 10 builds, total 90 measured builds plus 24 warmups).
-   - **(d) Scenario C' Reporting:** No re-run. Formally report the architectural finding regarding save supersession and unscored predictions.
-3. **Estimated Execution Time Arithmetic for Re-Runs:**
-   - **Scenario B Re-Run:** 5 conditions $\times$ 42 builds = 210 builds. Mean delay = $(0.5 + 20.0)/2 = 10.25\text{ s}$. Build times: C0 $\approx 4.8\text{ s}$, C1/C2/C3/A2 $\approx 2.1\text{ s}$, mean $\approx 2.64\text{ s}$. Inter-build settlement = $1.0\text{ s}$. Total time per build = $10.25 + 2.64 + 1.0 = 13.89\text{ s}$. Total duration = $210 \times 13.89\text{ s} = 2,917\text{ s} \approx \mathbf{48.6\text{ minutes}}$.
-   - **A3' Interleaved Idle Re-Run:** 3 conditions $\times$ 30 builds = 90 measured builds + 24 warmups = 114 builds. Delay = $1.80\text{ s}$, idle build duration $\approx 1.83\text{ s}$, settlement = $1.0\text{ s}$. Total time per build = $1.80 + 1.83 + 1.0 = 4.63\text{ s}$. Total duration = $114 \times 4.63\text{ s} = 528\text{ s} \approx \mathbf{8.8\text{ minutes}}$.
-   - **Total Estimated Re-Run Time:** $48.6 + 8.8 = \mathbf{57.4\text{ minutes}}$.
+**Transparency Statement:** This amended plan (Version 1.6.0 post-hoc) formally pre-registers and executes three specific post-hoc re-runs to resolve empirical defects identified during the Step 11d data-integrity audit:
+
+1. **Defect Diagnoses and Rationale for Re-Runs:**
+   - **RNG Seed Defect (Scenario B & Scenario A):** In earlier runs, invoking `build_on_save.py` per build cycle with default RNG seed caused identical delays on every measured build (~12.968s in Scenario B, ~1.786s in Scenario A). The harness is fixed so each build receives an independent seed (`seed = base_seed + build_index`), with the realised delay logged as `delay_s` in `results.jsonl`. Rigorous assertions are added: abort if $CV < 0.40$ for `manual-irregular` after 10 builds, or if standard deviation $< 0.03\text{ s}$ for `auto`.
+   - **A3' Machine-State Confound:** In post-hoc A3' at idle, builds took ~3.88s (both reserved and unboosted holdouts alike), caused by external host power/thermal throttling rather than anticipatory actuation. An interleaved idle re-run alongside C0 and C2 directly isolates any machine-state effect.
+
+2. **The Three Pre-Registered Post-Hoc Re-Runs:**
+   - **(a) Scenario B Re-Run (`rerun-b`):**
+     - Conditions: C0, C1, C2, C3, and A2.
+     - Workload: Moderate load (`stress-ng --cpu 2 --cpu-load 50`).
+     - Protocol: 3 rotating Latin-square blocks $\times$ 10 measured builds = 30 measured builds per condition (total 150 measured builds), preceded by 12 warm-up builds drawn from the same $U(0.5, 20.0)\text{ s}$ distribution.
+     - Delays: Independent $U(0.5, 20.0)\text{ s}$ per build. Harness aborts if $CV < 0.40$.
+     - Output: `benchmarks/results_rerun_scen_b`.
+   - **(b) A3' Interleaved Idle Re-Run (`rerun-a3prime`):**
+     - Conditions: C0, C2, and A3' (`--ablation-no-contention-gate --no-cost-gate`).
+     - Workload: Idle load (0% background CPU).
+     - Protocol: 3 rotating Latin-square blocks $\times$ 10 measured builds = 30 measured builds per condition (total 90 measured builds), plus warm-ups.
+     - Delays: Independent $N(1.8, 0.1)\text{ s}$ per build.
+     - Diagnostic Value: Comparing A3' to C0 and C2 within the exact same blocks provides definitive evidence of whether anticipatory actuation incurs idle regression or if previous results were host throttling.
+     - Output: `benchmarks/results_rerun_a3_prime`.
+   - **(c) Scenario A Repeat at High Load Only (`rerun-a-high`):**
+     - Conditions: C0, C1, C2, C3.
+     - Workload: High load (`stress-ng --cpu 4 --cpu-load 80`).
+     - Protocol: 5 rotating Latin-square blocks $\times$ 10 measured builds = 50 measured builds per condition (total 200 measured builds), plus warm-ups.
+     - Delays: Independent draws from $N(1.8, 0.1)\text{ s}$ per build with real jitter ($\sigma \ge 0.03\text{ s}$).
+     - Output: `benchmarks/results_rerun_scen_a_high`.
+
+3. **Execution Guardrails:**
+   - All runs executed sequentially in background (`nohup`) as root (`wsl -u root`), polled every 3–5 minutes.
+   - Strictly NO tuning of thresholds, weights, or priors.
+   - All existing raw results in `results_tier1`, `results_tier2`, `results_tier3`, and `results_posthoc` remain untouched.
+   - Post-run verification of zero leftover load, daemon processes, or cgroups.
 
 ---
 
