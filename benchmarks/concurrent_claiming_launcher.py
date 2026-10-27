@@ -250,12 +250,13 @@ class ConcurrencyExperimentRunner:
     ) -> Dict[str, Any]:
         """Execute a single concurrent claiming trial with barrier launch."""
         # 1. Deterministic arming:
-        # Prepare tool symlink for this trial: link bin/gcc -> sleeper or forker
-        gcc_link = self.bin_dir / "gcc"
-        if gcc_link.is_symlink() or gcc_link.exists():
-            gcc_link.unlink()
+        # Prepare real tool binary named gcc for this trial: copy sleeper or forker
+        gcc_bin = self.bin_dir / "gcc"
+        if gcc_bin.exists() or gcc_bin.is_symlink():
+            gcc_bin.unlink()
         target_tool = self.forker_tool if variant == "V4" else self.sleeper_tool
-        gcc_link.symlink_to(target_tool)
+        shutil.copyfile(str(target_tool), str(gcc_bin))
+        os.chmod(str(gcc_bin), 0o755)
 
         # Trigger save on proj_target
         (self.proj_target / "main.c").write_text(f"// trial {trial_id} {time.time()}\nint main(){{return 0;}}\n")
@@ -315,7 +316,7 @@ class ConcurrencyExperimentRunner:
                 os.read(pipe_r, 1)  # Block until parent closes pipe_w
                 os.close(pipe_r)
                 os.chdir(str(self.proj_target))
-                os.execv(str(gcc_link), ["gcc", str(cand_dur_s)])
+                os.execv(str(gcc_bin), ["gcc", str(cand_dur_s)])
             else:
                 target_pids.append(pid)
 
@@ -328,7 +329,7 @@ class ConcurrencyExperimentRunner:
                     os.read(pipe_r, 1)
                     os.close(pipe_r)
                     os.chdir(str(self.proj_decoy))
-                    os.execv(str(gcc_link), ["gcc", str(cand_dur_s)])
+                    os.execv(str(gcc_bin), ["gcc", str(cand_dur_s)])
                 else:
                     decoy_pids.append(pid)
         elif variant == "V3":
@@ -339,7 +340,7 @@ class ConcurrencyExperimentRunner:
                     os.read(pipe_r, 1)
                     os.close(pipe_r)
                     os.chdir(str(self.outside_dir))
-                    os.execv(str(gcc_link), ["gcc", str(cand_dur_s)])
+                    os.execv(str(gcc_bin), ["gcc", str(cand_dur_s)])
                 else:
                     decoy_pids.append(pid)
 
