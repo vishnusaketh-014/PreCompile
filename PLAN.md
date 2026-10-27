@@ -234,3 +234,31 @@ This roadmap outlines the 11 development steps to implement, test, and experimen
   - Full evaluation matrix executed across Tier 1 (Scenario A: idle, moderate, high load), Tier 2 (Scenario B irregular delays, Scenario C save-only), and Tier 3 (Ablations A2, A3, A4, A5) totaling 94 blocks, 900 measured builds, and 200 save iterations.
   - Final evaluation report and verification of all pre-registered success criteria (S1–S7) with step-down Holm-Bonferroni correction and 95% bootstrap confidence intervals.
   - Verification of 0 leftover `precompile-res-*` cgroups and 0 orphaned background processes across all tiers.
+
+- **Step 11f (Concurrent Process Claiming Validation - Plan Amendment v1.3):**
+  - **Hypothesis:** Under concurrent process creation by near-simultaneous candidate processes, atomic claim protection guarantees that exactly one process is claimed into the reservation cgroup (P1), processes from other projects or outside any project are never admitted (P2), all live descendants of the claimant are swept into the group without leaks (P3), and the reservation and cgroups clean up with zero orphans upon termination (P4). Under the negative control (atomic claim OFF), if the daemon architecture's single-threaded topmost-ancestor resolution naturally serializes candidates before the reservation lock is exercised, the negative control will observe 0 double claims (indicating the OS-level test does not exercise the race at the reservation lock level); if interleaving occurs, duplicate claims will be observed.
+  - **Design:**
+    - Shared-pipe barrier launcher: forks $N$ child processes that block reading from a pipe. On write-pipe close, all children unblock simultaneously and execute the target tool profile binary (`gcc`) with `cwd` inside the project.
+    - Deterministic arming: reservation is armed with window open ($[0.0, 5.0]\text{ s}$) before the barrier is released.
+    - 4 Variants:
+      - **V1:** All $N$ candidates in target project.
+      - **V2:** $N$ target candidates plus $N$ decoys in a second registered project that is also armed.
+      - **V3:** $N$ target candidates plus $N$ decoys outside any registered project.
+      - **V4:** $N$ target candidates, each candidate forks 4 children immediately after exec.
+    - Candidate counts: $N \in \{2, 8, 32\}$.
+    - Conditions: Atomic claim ON (default) and Atomic claim OFF (negative control via `--ablation-no-atomic-claim`).
+    - Trial counts: At least 100 trials per $(V, N, \text{condition})$ tuple ($4 \times 3 \times 100 \times 2 = 2,400$ total trials).
+  - **Success Criteria (per trial, atomic claim ON):**
+    - **P1:** Exactly one candidate is the claimant (`cgroup.procs` of the group and DB claim record agree).
+    - **P2:** No process of another project, or outside any project, is in the group.
+    - **P3:** In V4, every live descendant of the claimant is in the group (`leaks == 0`).
+    - **P4:** The reservation reaches CLOSED, the group directory is removed, no orphan cgroups remain.
+    - Pass requirement: P1–P4 hold in 100% of trials. Clopper-Pearson 95% upper bound on failure rate reported.
+  - **Negative Control Evaluation:**
+    - Report the count and percentage of trials with more than one claimant under atomic claim OFF.
+    - If OFF never produces a duplicate claim, explicitly report that the test does not exercise the race at the reservation lock level due to daemon-level serialization, and do not describe atomic claim as validated by this test.
+  - **Secondary Metric:**
+    - Creation-to-claim latency: duration from the first candidate creation timestamp to claim timestamp (median, p95).
+  - **Analysis:**
+    - Pure-Python analyzer reading only the raw JSONL trial logs.
+

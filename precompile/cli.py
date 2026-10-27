@@ -243,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ablation A5: 100%% reservation rate; disable holdouts and benefit controller feedback",
     )
     p_daemon.add_argument(
+        "--ablation-no-atomic-claim",
+        action="store_true",
+        default=False,
+        help="Ablation Negative Control: Disable atomic claim locking in ReservationManager",
+    )
+    p_daemon.add_argument(
         "--boost-budget-seconds",
         type=float,
         default=900.0,
@@ -422,6 +428,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     ablation_no_conf = bool(getattr(args, "ablation_no_confidence_gate", False))
     ablation_no_cont = bool(getattr(args, "ablation_no_contention_gate", False)) or bool(getattr(args, "no_contention_gate", False))
     ablation_no_hold = bool(getattr(args, "ablation_no_holdout", False))
+    ablation_no_atomic = bool(getattr(args, "ablation_no_atomic_claim", False))
     fixed_win_str = getattr(args, "ablation_fixed_window", None)
 
     fixed_win = None
@@ -478,6 +485,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         ablation_no_contention_gate=ablation_no_cont,
         ablation_fixed_window=fixed_win,
         ablation_no_holdout=ablation_no_hold,
+        ablation_no_atomic_claim=ablation_no_atomic,
         boost_budget_seconds=boost_budget_seconds,
         budget_interval_s=budget_interval_s,
         max_cgroup_weight=max_cgroup_weight,

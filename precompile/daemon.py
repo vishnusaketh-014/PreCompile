@@ -83,6 +83,7 @@ class PreCompileDaemon:
         ablation_no_contention_gate: bool = False,
         ablation_fixed_window: Optional[Tuple[float, float]] = None,
         ablation_no_holdout: bool = False,
+        ablation_no_atomic_claim: bool = False,
         safety_governor: Optional[Any] = None,
         boost_budget_seconds: Optional[float] = None,
         budget_interval_s: Optional[float] = None,
@@ -144,6 +145,7 @@ class PreCompileDaemon:
         self.ablation_no_contention_gate = ablation_no_contention_gate
         self.ablation_fixed_window = ablation_fixed_window
         self.ablation_no_holdout = ablation_no_holdout
+        self.ablation_no_atomic_claim = ablation_no_atomic_claim
 
         self.config = config if config is not None else AppConfig()
         self.pid_file = Path(pid_file) if pid_file is not None else None
@@ -312,6 +314,7 @@ class PreCompileDaemon:
                 clock=self.clock,
                 proc_path=self.proc_path,
                 sweep_window_s=sweep_win,
+                atomic_claim=not ablation_no_atomic_claim,
             )
             self._actuate_requested = requested_actuate
 
@@ -1184,6 +1187,7 @@ class PreCompileDaemon:
                 "ablation_no_contention_gate": self.ablation_no_contention_gate,
                 "ablation_fixed_window": self.ablation_fixed_window,
                 "ablation_no_holdout": self.ablation_no_holdout,
+                "ablation_no_atomic_claim": self.ablation_no_atomic_claim,
                 "actuate": self.actuate,
                 "reservation_weight": self.reservation_weight,
             }
