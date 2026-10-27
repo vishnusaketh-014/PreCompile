@@ -305,7 +305,7 @@ class ConcurrencyExperimentRunner:
         decoy_pids: List[int] = []
 
         # Candidate duration in seconds
-        cand_dur_s = 0.25
+        cand_dur_s = 0.20
 
         # Fork target candidates
         for _ in range(N):
@@ -481,7 +481,7 @@ class ConcurrencyExperimentRunner:
         }
 
         # Settle post-build suppression tail (+0.3s) before next trial
-        time.sleep(0.35)
+        time.sleep(0.31)
 
         return record
 
