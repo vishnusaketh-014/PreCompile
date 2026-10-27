@@ -176,11 +176,14 @@ class ConcurrencyExperimentRunner:
         (self.proj_decoy / "main.c").write_text("int main(){return 0;}\n", encoding="utf-8")
         (self.outside_dir / "main.c").write_text("int main(){return 0;}\n", encoding="utf-8")
 
-        # Initialize SQLite database with projects
+        # Initialize SQLite database with projects and initial build samples for estimation
         from precompile.store import DataStore
         with DataStore(db_path=self.db_path) as store:
             store.add_project("proj_target", str(self.proj_target), "custom:gcc")
             store.add_project("proj_decoy", str(self.proj_decoy), "custom:gcc")
+            t_now = time.time()
+            store.record_build("proj_target", "observed", 0.0, 0.5, t_now - 1.0, t_now)
+            store.record_build("proj_decoy", "observed", 0.0, 0.5, t_now - 1.0, t_now)
 
     def start_daemon(self, condition: str) -> subprocess.Popen:
         """Start the real precompile daemon subprocess."""
@@ -254,15 +257,13 @@ class ConcurrencyExperimentRunner:
         target_tool = self.forker_tool if variant == "V4" else self.sleeper_tool
         gcc_link.symlink_to(target_tool)
 
-        # Trigger save on proj_target (and proj_decoy if V2)
+        # Trigger save on proj_target
         (self.proj_target / "main.c").write_text(f"// trial {trial_id} {time.time()}\nint main(){{return 0;}}\n")
-        if variant == "V2":
-            (self.proj_decoy / "main.c").write_text(f"// trial {trial_id} {time.time()}\nint main(){{return 0;}}\n")
 
-        # Poll /sys/fs/cgroup until reservation cgroup is created and weight=500
         target_res_id: Optional[str] = None
         target_grp_dir: Optional[Path] = None
         decoy_res_id: Optional[str] = None
+        decoy_grp_dir: Optional[Path] = None
 
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
@@ -270,33 +271,30 @@ class ConcurrencyExperimentRunner:
                 p for p in Path("/sys/fs/cgroup").iterdir()
                 if p.is_dir() and p.name.startswith("precompile-res-")
             ]
-            expected_count = 2 if variant == "V2" else 1
-            if len(active_groups) >= expected_count:
-                # Identify which group belongs to proj_target
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "SELECT id, group_name FROM reservations WHERE project_id = 'proj_target' AND final_state = 'ARMED' ORDER BY armed_at DESC LIMIT 1"
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        target_res_id, g_name = row
-                        target_grp_dir = Path("/sys/fs/cgroup") / g_name
-                        if target_grp_dir.exists():
-                            if variant == "V2":
-                                cur.execute(
-                                    "SELECT id, group_name FROM reservations WHERE project_id = 'proj_decoy' AND final_state = 'ARMED' ORDER BY armed_at DESC LIMIT 1"
-                                )
-                                d_row = cur.fetchone()
-                                if d_row:
-                                    decoy_res_id = d_row[0]
-                                    break
-                            else:
-                                break
+            if active_groups:
+                target_grp_dir = active_groups[0]
+                target_res_id = target_grp_dir.name[len("precompile-res-"):]
+                break
             time.sleep(0.01)
 
+        if variant == "V2":
+            (self.proj_decoy / "main.c").write_text(f"// trial {trial_id} {time.time()}\nint main(){{return 0;}}\n")
+            deadline_v2 = time.monotonic() + 3.0
+            while time.monotonic() < deadline_v2:
+                active_groups = [
+                    p for p in Path("/sys/fs/cgroup").iterdir()
+                    if p.is_dir() and p.name.startswith("precompile-res-") and p != target_grp_dir
+                ]
+                if active_groups:
+                    decoy_grp_dir = active_groups[0]
+                    decoy_res_id = decoy_grp_dir.name[len("precompile-res-"):]
+                    break
+                time.sleep(0.01)
+
         if target_res_id is None or target_grp_dir is None:
-            raise RuntimeError(f"Trial {trial_id}: Reservation was not armed within 3.0s")
+            raise RuntimeError(f"Trial {trial_id}: Reservation for target was not armed within 3.0s")
+        if variant == "V2" and (decoy_res_id is None or decoy_grp_dir is None):
+            raise RuntimeError(f"Trial {trial_id}: Reservation for decoy was not armed within 3.0s")
 
         # 2. Shared-pipe barrier launcher:
         # Create pipe for release barrier
