@@ -274,7 +274,7 @@ class ConcurrencyExperimentRunner:
             ]
             if active_groups:
                 target_grp_dir = active_groups[0]
-                target_res_id = target_grp_dir.name[len("precompile-res-"):]
+                target_res_id = target_grp_dir.name[len("precompile-"):]
                 break
             time.sleep(0.01)
 
@@ -288,7 +288,7 @@ class ConcurrencyExperimentRunner:
                 ]
                 if active_groups:
                     decoy_grp_dir = active_groups[0]
-                    decoy_res_id = decoy_grp_dir.name[len("precompile-res-"):]
+                    decoy_res_id = decoy_grp_dir.name[len("precompile-"):]
                     break
                 time.sleep(0.01)
 
