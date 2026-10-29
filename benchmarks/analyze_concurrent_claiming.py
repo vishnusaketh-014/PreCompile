@@ -158,7 +158,17 @@ def analyze_concurrent_claiming(jsonl_path: Path) -> Dict[str, Any]:
 
     # Pooled Atomic OFF analysis
     off_total = len(atomic_off_trials)
+    off_all_pass = sum(1 for r in atomic_off_trials if r.get("trial_pass", False))
+    off_failures = off_total - off_all_pass
+    off_cp_upper_pct = clopper_pearson_upper_bound(off_failures, off_total) * 100.0 if off_total > 0 else 0.0
     off_dup = sum(1 for r in atomic_off_trials if r.get("duplicate_claim", False))
+    off_latencies = [
+        float(r["creation_to_claim_ms"])
+        for r in atomic_off_trials
+        if r.get("creation_to_claim_ms") is not None and r.get("creation_to_claim_ms") > 0
+    ]
+    off_med_lat = median(off_latencies) if off_latencies else 0.0
+    off_p95_lat = percentile(off_latencies, 95.0) if off_latencies else 0.0
 
     # Pass/Fail determination
     p1_success = (on_p1 == on_total) if on_total > 0 else False
@@ -191,6 +201,11 @@ def analyze_concurrent_claiming(jsonl_path: Path) -> Dict[str, Any]:
         },
         "atomic_off": {
             "total": off_total,
+            "all_pass": off_all_pass,
+            "failures": off_failures,
+            "cp_upper_pct": off_cp_upper_pct,
+            "med_lat_ms": off_med_lat,
+            "p95_lat_ms": off_p95_lat,
             "duplicate_claims": off_dup,
             "duplicate_rate_pct": (off_dup / off_total * 100.0) if off_total > 0 else 0.0,
             "exercised_race": (off_dup > 0),
@@ -233,15 +248,15 @@ def format_markdown_report(analysis: Dict[str, Any], jsonl_path: Path) -> str:
         lines.append(f"| {v} | {n_val} | {cond} | {tot} | {p1} | {p2} | {p3} | {p4} | {fails} | {cp} | {dup} | {med_l} | {p95_l} |")
 
     lines.append("\n### Table 11f.2: Consolidated Protocol Evaluation (Atomic ON vs Atomic OFF)\n")
-    lines.append("| Condition | Total Trials | Overall Pass Rate | Clopper-Pearson 95% UB | Duplicate Claims | Median Latency (ms) | P95 Latency (ms) |")
+    lines.append("| Condition | Total Trials | Overall Pass Rate | Clopper-Pearson 95% UB (one-sided) | Duplicate Claims | Median Latency (ms) | P95 Latency (ms) |")
     lines.append("|:---|:---:|:---:|:---:|:---:|:---:|:---:|")
     lines.append(
         f"| **Atomic ON (Default)** | {on['total']} | {on['all_pass']}/{on['total']} ({on['all_pass']/on['total']*100:.2f}%) | "
         f"**{on['cp_upper_pct']:.2f}%** | 0 | {on['med_lat_ms']:.2f} ms | {on['p95_lat_ms']:.2f} ms |"
     )
     lines.append(
-        f"| **Atomic OFF (Control)** | {off['total']} | {off['total'] - off['duplicate_claims']}/{off['total']} | "
-        f"N/A | {off['duplicate_claims']} ({off['duplicate_rate_pct']:.2f}%) | - | - |"
+        f"| **Atomic OFF (Control)** | {off['total']} | {off['all_pass']}/{off['total']} ({off['all_pass']/off['total']*100:.2f}%) | "
+        f"{off['cp_upper_pct']:.2f}% | {off['duplicate_claims']} ({off['duplicate_rate_pct']:.2f}%) | {off['med_lat_ms']:.2f} ms | {off['p95_lat_ms']:.2f} ms |"
     )
 
     lines.append("\n### Pre-Registered Criteria Determination (Step 11f)\n")
@@ -288,11 +303,102 @@ def format_markdown_report(analysis: Dict[str, Any], jsonl_path: Path) -> str:
     return "\n".join(lines)
 
 
+def analyze_lock_race(jsonl_path: Path) -> List[Dict[str, Any]]:
+    """Parse lock race JSONL records and produce summary statistics."""
+    records = []
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+
+    cells: Dict[Tuple[int, str], List[Dict[str, Any]]] = {}
+    for r in records:
+        key = (r["N"], r["condition"])
+        cells.setdefault(key, []).append(r)
+
+    summaries = []
+    for (n_val, cond), recs in sorted(cells.items()):
+        total = len(recs)
+        single = sum(1 for r in recs if r.get("single_winner", False))
+        dup = sum(1 for r in recs if r.get("duplicate_winner", False))
+        zero = total - single - dup
+        passed = (single == total) if cond == "ON" else (dup > 0)
+        summaries.append({
+            "N": n_val,
+            "condition": cond,
+            "rounds": total,
+            "single_winners": single,
+            "duplicate_winners": dup,
+            "zero_winners": zero,
+            "pass": passed,
+        })
+    return summaries
+
+
+def format_side_by_side(run1_path: Path, run2_path: Path) -> str:
+    """Format side-by-side comparison table between Run 1 and Run 2 for re-run cells."""
+    a1 = analyze_concurrent_claiming(run1_path)
+    a2 = analyze_concurrent_claiming(run2_path)
+
+    c1_map = {(c["variant"], c["N"], c["condition"]): c for c in a1["cells"]}
+    c2_map = {(c["variant"], c["N"], c["condition"]): c for c in a2["cells"]}
+
+    lines = []
+    lines.append("### Table 11f.3: Side-by-Side Comparison of Run 1 vs Run 2 Re-Run Cells (100 Trials Each)\n")
+    lines.append("| Cell (Var / N / Cond) | Run 1 Pass | Run 1 Fails | Run 1 CP 95% UB | Run 1 Med Lat | Run 2 Pass | Run 2 Fails | Run 2 CP 95% UB | Run 2 Med Lat | Delta Fails |")
+    lines.append("|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|")
+
+    target_keys = sorted(c2_map.keys())
+    for key in target_keys:
+        v, n_val, cond = key
+        cell_str = f"{v} / N={n_val} / {cond}"
+        c2 = c2_map[key]
+        c1 = c1_map.get(key, {})
+
+        p1_tot = f"{c1.get('all_pass', 0)}/{c1.get('total_trials', 0)}"
+        f1 = c1.get("failures", 0)
+        cp1 = f"{c1.get('cp_upper_pct', 0.0):.2f}%"
+        med1 = f"{c1.get('med_lat_ms', 0.0):.2f} ms"
+
+        p2_tot = f"{c2.get('all_pass', 0)}/{c2.get('total_trials', 0)}"
+        f2 = c2.get("failures", 0)
+        cp2 = f"{c2.get('cp_upper_pct', 0.0):.2f}%"
+        med2 = f"{c2.get('med_lat_ms', 0.0):.2f} ms"
+
+        delta = f2 - f1
+        delta_str = f"{delta:+d}" if delta != 0 else "0"
+
+        lines.append(f"| **{cell_str}** | {p1_tot} | {f1} | {cp1} | {med1} | {p2_tot} | {f2} | {cp2} | {med2} | **{delta_str}** |")
+
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analyze concurrent claiming experiment JSONL logs.")
-    parser.add_argument("--jsonl", type=Path, required=True, help="Path to raw JSONL data file.")
+    parser.add_argument("--jsonl", type=Path, help="Path to raw JSONL data file.")
     parser.add_argument("--markdown", action="store_true", help="Print markdown-formatted report.")
+    parser.add_argument("--compare", nargs=2, type=Path, metavar=("RUN1", "RUN2"), help="Compare Run 1 and Run 2 side-by-side.")
+    parser.add_argument("--lock-race", type=Path, help="Path to lock race JSONL file.")
     args = parser.parse_args()
+
+    if args.compare:
+        print(format_side_by_side(args.compare[0], args.compare[1]))
+        return
+
+    if args.lock_race:
+        summaries = analyze_lock_race(args.lock_race)
+        print("### Lock-Level Concurrency Race Matrix")
+        print("| N | Condition | Rounds | Exactly 1 Winner | Duplicates | Zero Winners | Pass Status |")
+        print("|:---:|:---|:---:|:---:|:---:|:---:|:---:|")
+        for s in summaries:
+            st = "**PASS**" if s["pass"] else "**FAIL**"
+            print(f"| {s['N']} | {s['condition']} | {s['rounds']} | {s['single_winners']}/{s['rounds']} | {s['duplicate_winners']} | {s['zero_winners']} | {st} |")
+        return
+
+    if not args.jsonl:
+        parser.print_help()
+        sys.exit(1)
 
     if not args.jsonl.exists():
         print(f"Error: file {args.jsonl} does not exist", file=sys.stderr)

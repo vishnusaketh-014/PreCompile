@@ -262,3 +262,28 @@ This roadmap outlines the 11 development steps to implement, test, and experimen
   - **Analysis:**
     - Pure-Python analyzer reading only the raw JSONL trial logs.
 
+- **Step 11f-2 (Concurrent Claiming Pre-Registered Corrected Re-Run & Lock-Level Race - Plan Amendment v1.4):**
+  - **Objectives & Scope:**
+    - Maintain unmodified success criteria P1–P4 and the strict 100% pass requirement.
+    - Resolve the harness measurement artifact identified in Run 1 where high concurrency ($N=32$) delayed process claiming past a fixed 80ms sleep while candidates had an abbreviated 0.20s lifetime.
+    - Provide direct validation of the lock-level concurrency race bypassing daemon watcher serialization.
+  - **Measurement Fixes & Protocol Updates:**
+    - **Event-Driven Live Snapshot:** Replace the fixed 0.08s sleep with an event-driven poll loop on the SQLite database and cgroup, capturing `group_members` immediately once the claim is registered.
+    - **Lengthened Candidate Lifetime:** Extend candidate process execution duration to $\ge 0.80\text{ s}$ to ensure no candidate process exits prior to snapshot evaluation.
+    - **Telemetry Schema Extension:** Record `cand_dur_s` (candidate duration), `t_snapshot` (monotonic snapshot timestamp), and the repository `plan_commit` (HEAD commit hash) in every trial record.
+    - **Decoy Teardown Synchronization:** In multi-reservation variants (V2), explicitly synchronize the teardown of both target and decoy reservation groups before orphan evaluation.
+    - **Trial-by-Trial Interleaving:** Interleave Atomic ON and Atomic OFF conditions trial-by-trial within each cell rather than executing condition blocks sequentially.
+    - **Re-run Target Matrix:** Re-run cells V2/N32, V3/N32, and V4/N32 (100 trials each for ON and OFF, interleaved, totaling 600 trials). Cells that cleanly passed in Run 1 (V1/N2, V1/N8, V1/N32, V2/N2, V2/N8, V3/N2, V3/N8, V4/N2, V4/N8) remain as established in Run 1.
+  - **Lock-Level Concurrency Race Test:**
+    - **Design:** Directly test `ReservationManager.try_claim` under true multithreaded contention with real OS processes, bypassing `ProcessWatcher` serialization.
+    - **Setup:** For $N \in \{2, 8, 32\}$, spawn $N$ real OS child processes holding open pipes. Spawn $N$ concurrent worker threads synchronized by a `threading.Barrier(N)`. At the barrier release, all $N$ threads simultaneously invoke `ReservationManager.try_claim` on an armed reservation backed by real Linux cgroups (`CgroupController`).
+    - **Conditions:**
+      1. `atomic_claim = True` (Default Atomic Claim ON).
+      2. `atomic_claim = False` without interleave hook (Ablated Non-Atomic Claim).
+      3. `atomic_claim = False` with `claim_interleave_hook` (Negative Control with Interleaving Hook).
+    - **Volume:** At least 1,000 independent rounds per $N \in \{2, 8, 32\}$ for each condition.
+    - **Criteria:**
+      - **Atomic Claim ON:** Exactly one claimant thread succeeds (`try_claim == True`) in 100% of at least 1,000 rounds for each $N \in \{2, 8, 32\}$ (0 duplicate claims).
+      - **Atomic Claim OFF with Hook:** Negative control must produce more than one winner in at least one round; otherwise the negative control is reported as failed.
+
+

@@ -337,7 +337,11 @@ Histogram (10 bins):
 
 ## 9. Concurrent claiming (11f)
 
+### Run 1 (as pre-registered): P1, P2, P4 FAILED the 100% criterion
+
 **Plan Commit Hash:** `c94ec79b0450908e6d8722f187398cdf0b329496` (`git_dirty: false`)
+
+**Plan Verification Check:** `git diff c94ec79b0450908e6d8722f187398cdf0b329496 HEAD -- PLAN.md` returned clean/empty, verifying that criteria in `PLAN.md` were not changed after the plan commit.
 
 **Raw Data File:** `benchmarks/results_step11f/concurrent_claiming.jsonl` (2,400 total trials)
 
@@ -345,7 +349,7 @@ Histogram (10 bins):
 
 ### Table 11f.1: Per-Cell Concurrency Validation Matrix (24 Cells, 100 Trials Each)
 
-| Variant | N | Condition | Trials | P1 Pass | P2 Pass | P3 Pass | P4 Pass | Failures | CP 95% Upper Bound | Dup Claims | Claim Lat Med (ms) | Claim Lat P95 (ms) |
+| Variant | N | Condition | Trials | P1 Pass | P2 Pass | P3 Pass | P4 Pass | Failures | CP 95% Upper Bound (one-sided) | Dup Claims | Claim Lat Med (ms) | Claim Lat P95 (ms) |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | V1 | 2 | OFF | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 21.67 | 39.16 |
 | V1 | 2 | ON | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 27.97 | 41.42 |
@@ -356,7 +360,7 @@ Histogram (10 bins):
 | V2 | 2 | OFF | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 30.41 | 52.11 |
 | V2 | 2 | ON | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 32.19 | 49.69 |
 | V2 | 8 | OFF | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 44.04 | 60.56 |
-| V2 | 8 | ON | 100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 37.65 | 57.63 |
+| V2 | 8 | ON | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 37.65 | 57.63 |
 | V2 | 32 | OFF | 100 | 4/100 | 100/100 | 100/100 | 99/100 | 97 | 99.18% | 0 | 98.80 | 126.44 |
 | V2 | 32 | ON | 100 | 93/100 | 100/100 | 100/100 | 99/100 | 8 | 13.97% | 0 | 61.99 | 81.90 |
 | V3 | 2 | OFF | 100 | 100/100 | 100/100 | 100/100 | 100/100 | 0 | 2.95% | 0 | 11.28 | 21.63 |
@@ -374,12 +378,14 @@ Histogram (10 bins):
 
 ### Table 11f.2: Consolidated Protocol Evaluation (Atomic ON vs Atomic OFF)
 
-| Condition | Total Trials | Overall Pass Rate | Clopper-Pearson 95% UB | Duplicate Claims | Median Latency (ms) | P95 Latency (ms) |
+| Condition | Total Trials | Overall Pass Rate | Clopper-Pearson 95% UB (one-sided) | Duplicate Claims | Median Latency (ms) | P95 Latency (ms) |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **Atomic ON (Default)** | 1200 | 1191/1200 (99.25%) | **1.31%** | 0 | 25.66 ms | 59.36 ms |
-| **Atomic OFF (Control)** | 1200 | 1200/1200 | N/A | 0 (0.00%) | - | - |
+| **Atomic OFF (Control)** | 1200 | 1002/1200 (83.50%) | 18.36% | 0 (0.00%) | 25.52 ms | 93.55 ms |
 
-### Pre-Registered Criteria Determination (Step 11f)
+*(Note: Clopper-Pearson confidence bounds reported above and throughout this evaluation are exact one-sided 95% upper bounds on the per-trial failure rate.)*
+
+### Pre-Registered Criteria Determination (Step 11f - Run 1)
 
 - **P1 (Claimant Uniqueness & Agreement):** **FAIL** (1,192 / 1,200 = 99.33%; pre-registered target was 100%)
 - **P2 (Project Boundary Isolation):** **FAIL** (1,199 / 1,200 = 99.92%; pre-registered target was 100%)
@@ -393,11 +399,18 @@ Because the daemon's single-threaded process watcher resolves the topmost ancest
 
 ### Audit of Failures Under Atomic Claim ON (9 out of 1,200 trials)
 
-An audit of the 9 non-passing trials under Atomic ON revealed:
-1. **P1 Discrepancy under High Concurrency (8 trials in V2 N=32, 1 trial in V4 N=32):**
-   - In trials 541, 558, 584, 585, 586, 595, 598 (V2, N=32, 64 total concurrent processes) and trial 1110 (V4, N=32, 32 processes with 128 children), the daemon correctly claimed a single valid process into the database (`db_claimed_pid` populated, `db_final_state = CLOSED`). However, because candidate processes ran for 0.20s while 64–160 processes flooded `/proc`, the claimant completed execution and exited before the fixed 0.08s live inspection snapshot read `cgroup.procs`, resulting in `group_members: []` at that sample instant.
-2. **P4 Cleanup Timeout (1 trial in V2 N=32):**
-   - In trial 570, the reservation closed cleanly, but kernel cgroup teardown lagged slightly beyond the 3.0s polling deadline under heavy WSL `/proc` contention.
+An audit of the raw JSONL records for the 9 non-passing trials under Atomic ON revealed:
+1. **P1 Discrepancy under High Concurrency (8 trials total: 7 trials in V2 N=32, 1 trial in V4 N=32):**
+   - **Failing Trial IDs for P1:**
+     - V2 N=32 (7 trials): `541`, `558`, `584`, `585`, `586`, `595`, `598`.
+     - V4 N=32 (1 trial): `1110`.
+   - In all 7 V2 N=32 trials, the daemon correctly claimed a single valid process into the database (`db_claimed_pid` populated, `db_final_state = CLOSED`). However, candidate processes ran for 0.20s while 64 concurrent processes flooded the system, leading to `creation_to_claim_ms` values between 81.4 ms and 87.5 ms. Because the harness took a fixed static snapshot at `t_release + 0.08 s` (80 ms), the snapshot occurred before the claimant was moved into `cgroup.procs`, yielding `group_members: []` at that sample instant despite a successful claim.
+2. **P2 Boundary Isolation Discrepancy (1 trial in V4 N=32):**
+   - **Failing Trial ID for P2:** `1110`.
+   - In trial 1110, `db_claimed_pid = 30875` had already exited by the 80 ms snapshot, leaving only its child processes `[30912, 30913, 30917]` in `cgroup.procs`. Because the claimant had exited, `claimant_pids` was empty, which caused `live_descendants` to be empty. The harness's boundary check evaluated valid processes against `target_pids` only, misidentifying the legitimate child processes as foreign contamination (`contamination_count = 3`), failing both P1 and P2.
+3. **P4 Cleanup Timeout (1 trial in V2 N=32):**
+   - **Failing Trial ID for P4:** `570`.
+   - In trial 570, both target and decoy reservations were armed simultaneously. The harness wait loop checked only `target_res_id` for reaching `CLOSED`. The decoy reservation's cgroup was still active (`orphan_cgroups_count: 1`) when directory removal was evaluated, resulting in `cleanup_status = DIRTY` and `p4_pass = False`.
 
 ### Raw Data Excerpt (First 3 and Last 3 Lines)
 

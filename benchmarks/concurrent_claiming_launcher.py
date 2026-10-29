@@ -141,9 +141,11 @@ class ConcurrencyExperimentRunner:
         trials_per_cell: int = 100,
         output_path: Path = Path("benchmarks/results_step11f/concurrent_claiming.jsonl"),
         quick_smoke: bool = False,
+        cand_duration: float = 0.50,
     ) -> None:
         self.trials_per_cell = 2 if quick_smoke else trials_per_cell
         self.output_path = output_path
+        self.cand_duration = cand_duration
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.git_meta = get_git_metadata()
 
@@ -304,8 +306,8 @@ class ConcurrencyExperimentRunner:
         target_pids: List[int] = []
         decoy_pids: List[int] = []
 
-        # Candidate duration in seconds
-        cand_dur_s = 0.20
+        # Candidate duration in seconds (configured via launcher)
+        cand_dur_s = self.cand_duration
 
         # Fork target candidates
         for _ in range(N):
@@ -349,12 +351,32 @@ class ConcurrencyExperimentRunner:
         t_release = time.monotonic()
         os.close(pipe_w)  # Releases all N (or 2N) candidates simultaneously
 
-        # 3. Live cgroup sampling while candidates are running
-        # Sleep 0.08s for watcher scan and daemon claim
-        time.sleep(0.08)
-
+        # 3. Event-driven live cgroup sampling while candidates are running
         procs_file = target_grp_dir / "cgroup.procs"
         group_procs: List[int] = []
+        t_snapshot: float = 0.0
+
+        # Poll database for claim commit on target_res_id
+        poll_deadline = time.monotonic() + min(cand_dur_s - 0.05, 0.40)
+        claimed_in_db = False
+        while time.monotonic() < poll_deadline:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT claimed_pid FROM reservations WHERE id = ?",
+                    (target_res_id,),
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    claimed_in_db = True
+                    break
+            time.sleep(0.002)
+
+        # For V4, give the background fixpoint sweeper a brief interval (0.05s) to attach children
+        if variant == "V4" and claimed_in_db:
+            time.sleep(0.05)
+
+        t_snapshot = time.monotonic()
         if procs_file.exists():
             try:
                 raw_procs = procs_file.read_text(encoding="utf-8").strip()
@@ -407,8 +429,18 @@ class ConcurrencyExperimentRunner:
                 row = cur.fetchone()
                 if row:
                     db_final_state, db_claimed_pid, db_claimed_at, claim_lat_s = row
-                    if db_final_state in ("CLOSED", "EXPIRED", "CANCELLED"):
-                        break
+                    target_closed = db_final_state in ("CLOSED", "EXPIRED", "CANCELLED")
+                    decoy_closed = True
+                    if variant == "V2" and decoy_res_id is not None:
+                        cur.execute(
+                            "SELECT final_state FROM reservations WHERE id = ?",
+                            (decoy_res_id,),
+                        )
+                        d_row = cur.fetchone()
+                        decoy_closed = (d_row is not None and d_row[0] in ("CLOSED", "EXPIRED", "CANCELLED"))
+                    if target_closed and decoy_closed and not target_grp_dir.exists():
+                        if variant != "V2" or decoy_grp_dir is None or not decoy_grp_dir.exists():
+                            break
             time.sleep(0.02)
 
         # Check group directory removal and orphan cgroups
@@ -459,6 +491,9 @@ class ConcurrencyExperimentRunner:
             "variant": variant,
             "N": N,
             "condition": condition,
+            "cand_dur_s": cand_dur_s,
+            "t_snapshot": round(t_snapshot, 6),
+            "snapshot_delay_ms": round((t_snapshot - t_release) * 1000.0, 3),
             "candidate_pids": target_pids,
             "decoy_pids": decoy_pids,
             "group_members": group_procs,
@@ -484,6 +519,65 @@ class ConcurrencyExperimentRunner:
         time.sleep(0.31)
 
         return record
+
+    def run_run2(self) -> None:
+        """Run pre-registered Run 2 re-run matrix: V2/N32, V3/N32, V4/N32 (interleaved ON/OFF)."""
+        self.setup_workspace()
+        target_cells = [("V2", 32), ("V3", 32), ("V4", 32)]
+        trial_counter = 0
+
+        print("================================================================================")
+        print("PreCompile Step 11f-2: Corrected Re-Run (Plan Amendment v1.4)")
+        print(f"Plan Commit: {self.plan_commit} | Working Tree Clean: {not self.git_meta['git_dirty']}")
+        print(f"Re-run Target Cells: {target_cells} | Trials per Condition: {self.trials_per_cell}")
+        print("Conditions: Interleaved ON and OFF trial-by-trial")
+        print("================================================================================")
+
+        with open(self.output_path, "w", encoding="utf-8") as jsonl_fp:
+            for variant, N in target_cells:
+                print(f"\n>>> Running Re-Run Cell: Variant={variant} | N={N} (Interleaved ON/OFF, {self.trials_per_cell} rounds each) ...")
+                on_pass = 0
+                off_pass = 0
+                on_dup = 0
+                off_dup = 0
+
+                for t in range(self.trials_per_cell):
+                    # Interleaved ON
+                    d_on = self.start_daemon("ON")
+                    time.sleep(0.15)
+                    try:
+                        trial_counter += 1
+                        rec_on = self.run_trial(trial_counter, variant, N, "ON")
+                        jsonl_fp.write(json.dumps(rec_on) + "\n")
+                        jsonl_fp.flush()
+                        if rec_on["trial_pass"]:
+                            on_pass += 1
+                        if rec_on["duplicate_claim"]:
+                            on_dup += 1
+                    finally:
+                        self.stop_daemon(d_on)
+
+                    # Interleaved OFF
+                    d_off = self.start_daemon("OFF")
+                    time.sleep(0.15)
+                    try:
+                        trial_counter += 1
+                        rec_off = self.run_trial(trial_counter, variant, N, "OFF")
+                        jsonl_fp.write(json.dumps(rec_off) + "\n")
+                        jsonl_fp.flush()
+                        if rec_off["trial_pass"]:
+                            off_pass += 1
+                        if rec_off["duplicate_claim"]:
+                            off_dup += 1
+                    finally:
+                        self.stop_daemon(d_off)
+
+                    if (t + 1) % 10 == 0 or (t + 1) == self.trials_per_cell:
+                        print(f"  Round {t+1:>3}/{self.trials_per_cell}: ON Pass={on_pass}/{t+1} (Dups={on_dup}) | OFF Pass={off_pass}/{t+1} (Dups={off_dup})")
+
+        print("\n================================================================================")
+        print(f"Step 11f-2 Run 2 Completed: {trial_counter} total trials saved to {self.output_path}")
+        print("================================================================================")
 
     def run_all(self) -> None:
         """Run all variants V1-V4 x N in {2, 8, 32} x {ON, OFF}."""
@@ -542,6 +636,17 @@ def main() -> None:
     parser.add_argument("--trials", type=int, default=100, help="Number of trials per cell (default: 100).")
     parser.add_argument("--quick", action="store_true", help="Quick smoke test (2 trials per cell).")
     parser.add_argument(
+        "--run2",
+        action="store_true",
+        help="Execute Run 2 re-run matrix (V2/N32, V3/N32, V4/N32 interleaved).",
+    )
+    parser.add_argument(
+        "--cand-duration",
+        type=float,
+        default=0.50,
+        help="Candidate execution duration in seconds (default: 0.50).",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path("benchmarks/results_step11f/concurrent_claiming.jsonl"),
@@ -558,8 +663,12 @@ def main() -> None:
         trials_per_cell=args.trials,
         output_path=args.output,
         quick_smoke=args.quick,
+        cand_duration=args.cand_duration,
     )
-    runner.run_all()
+    if args.run2:
+        runner.run_run2()
+    else:
+        runner.run_all()
 
 
 if __name__ == "__main__":
