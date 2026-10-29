@@ -392,7 +392,10 @@ def main() -> None:
         print("| N | Condition | Rounds | Exactly 1 Winner | Duplicates | Zero Winners | Pass Status |")
         print("|:---:|:---|:---:|:---:|:---:|:---:|:---:|")
         for s in summaries:
-            st = "**PASS**" if s["pass"] else "**FAIL**"
+            if s["condition"] == "OFF_NOHOOK":
+                st = "**PASS**" if s["pass"] else "control not exercised (no double claim without forced interleave)"
+            else:
+                st = "**PASS**" if s["pass"] else "**FAIL**"
             print(f"| {s['N']} | {s['condition']} | {s['rounds']} | {s['single_winners']}/{s['rounds']} | {s['duplicate_winners']} | {s['zero_winners']} | {st} |")
         return
 

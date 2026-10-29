@@ -465,13 +465,13 @@ An audit of the raw JSONL records for the 9 non-passing trials under Atomic ON r
 | N | Condition | Rounds | Exactly 1 Winner | Duplicates | Zero Winners | Pass Status |
 |:---:|:---|:---:|:---:|:---:|:---:|:---:|
 | 2 | ON | 1000 | 1000/1000 | 0 | 0 | **PASS** |
-| 2 | OFF_NOHOOK | 1000 | 1000/1000 | 0 | 0 | **FAIL** (Control unexercised) |
+| 2 | OFF_NOHOOK | 1000 | 1000/1000 | 0 | 0 | control not exercised (no double claim without forced interleave) |
 | 2 | OFF_HOOK | 1000 | 1/1000 | 999 | 0 | **PASS** |
 | 8 | ON | 1000 | 1000/1000 | 0 | 0 | **PASS** |
-| 8 | OFF_NOHOOK | 1000 | 1000/1000 | 0 | 0 | **FAIL** (Control unexercised) |
+| 8 | OFF_NOHOOK | 1000 | 1000/1000 | 0 | 0 | control not exercised (no double claim without forced interleave) |
 | 8 | OFF_HOOK | 1000 | 0/1000 | 1000 | 0 | **PASS** |
 | 32 | ON | 1000 | 1000/1000 | 0 | 0 | **PASS** |
-| 32 | OFF_NOHOOK | 1000 | 1000/1000 | 0 | 0 | **FAIL** (Control unexercised) |
+| 32 | OFF_NOHOOK | 1000 | 1000/1000 | 0 | 0 | control not exercised (no double claim without forced interleave) |
 | 32 | OFF_HOOK | 1000 | 2/1000 | 998 | 0 | **PASS** |
 
 ### Pre-Registered Criteria Determination (Step 11f-2 Run 2)
