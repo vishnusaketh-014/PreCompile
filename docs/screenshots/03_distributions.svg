@@ -1,0 +1,157 @@
+<svg width="1366" height="768" viewBox="0 0 1366 768" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="1366" height="768" fill="#050810"/>
+      
+    <rect x="0" y="0" width="220" height="768" fill="#0D1117" stroke="#1E2D40" stroke-width="1"/>
+    <!-- Brand -->
+    <text x="20" y="36" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="16" font-weight="800">⚡ PreCompile</text>
+    <rect x="130" y="24" width="34" height="16" rx="3" fill="rgba(124,58,237,0.15)" stroke="#9461FF" stroke-width="1"/>
+    <text x="147" y="35" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="700" text-anchor="middle">v1.5</text>
+    <text x="20" y="54" fill="#64748B" font-family="'JetBrains Mono', monospace" font-size="10">Anticipatory Priority</text>
+
+    <!-- Source Pill -->
+    <rect x="20" y="74" width="130" height="24" rx="12" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+    <circle cx="34" cy="86" r="4" fill="#10B981"/>
+    <text x="46" y="90" fill="#F1F5F9" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="600">LIVE: SQLite</text>
+    
+        <g transform="translate(12, 120)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⚖</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Compare (A/B)</text>
+        </g>
+        
+        <g transform="translate(12, 162)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⬡</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Live Overview</text>
+        </g>
+        
+        <g transform="translate(12, 204)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⏱</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Prediction Timeline</text>
+        </g>
+        
+        <g transform="translate(12, 246)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="rgba(124, 58, 237, 0.15)" stroke="rgba(124, 58, 237, 0.35)" stroke-width="1"/>
+          <text x="14" y="22" fill="#9461FF" font-size="14">📊</text>
+          <text x="36" y="22" fill="#9461FF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700">Reserved vs Holdout</text>
+        </g>
+        
+        <g transform="translate(12, 288)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📈</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Benefit Estimator</text>
+        </g>
+        
+        <g transform="translate(12, 330)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">🛡</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Safety Governor</text>
+        </g>
+        
+        <g transform="translate(12, 372)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">🧪</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Experiments</text>
+        </g>
+        
+        <g transform="translate(12, 414)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📜</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Decision Log</text>
+        </g>
+        
+    <!-- Sidebar Footer -->
+    <g transform="translate(14, 708)">
+      <rect x="0" y="0" width="192" height="30" rx="4" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+      <text x="96" y="19" fill="#F1F5F9" font-family="'Space Grotesk', sans-serif" font-size="11" font-weight="600" text-anchor="middle">📺 Presentation Mode [P]</text>
+    </g>
+    
+      
+    <rect x="220" y="0" width="1146" height="64" fill="#0D1117" stroke="#1E2D40" stroke-width="1"/>
+    <text x="248" y="32" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="18" font-weight="700">Reserved vs Holdout</text>
+    <text x="248" y="48" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="11">Empirical build-time & CPU share distributions</text>
+
+    <!-- Topbar Actions -->
+    <g transform="translate(1066, 20)">
+      <rect x="0" y="0" width="110" height="24" rx="12" fill="#16202B" stroke="#F59E0B" stroke-width="1"/>
+      <text x="55" y="16" fill="#F59E0B" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700" text-anchor="middle">▶ Replay Mode</text>
+
+      <rect x="120" y="0" width="140" height="24" rx="12" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+      <circle cx="132" cy="12" r="4" fill="#10B981"/>
+      <text x="144" y="16" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="10">SSE Live (1 Hz)</text>
+    </g>
+    
+      <g transform="translate(244, 84)">
+        
+    <!-- Highlight Stat Bar -->
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#00E5FF" stroke-width="1"/>
+      <text x="16" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">EMPIRICAL SPEEDUP</text>
+      <text x="16" y="54" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="24" font-weight="700">+56.8%</text>
+
+      <rect x="254" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="270" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">RESERVED MEDIAN</text>
+      <text x="270" y="54" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="24" font-weight="700">1.98s</text>
+
+      <rect x="508" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="524" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">HOLDOUT MEDIAN</text>
+      <text x="524" y="54" fill="#FFB300" font-family="'JetBrains Mono', monospace" font-size="24" font-weight="700">4.58s</text>
+
+      <rect x="762" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="778" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">SIGNIFICANCE (MANN-WHITNEY)</text>
+      <text x="778" y="54" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="20" font-weight="700">p &lt; 0.0001</text>
+    </g>
+
+    <!-- Side-by-Side Distribution Chart Panel -->
+    <g transform="translate(0, 94)">
+      <rect x="0" y="0" width="996" height="340" rx="10" fill="#111720" stroke="#243447" stroke-width="1"/>
+      <text x="24" y="28" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="14" font-weight="700">Build-Time Distribution (Reserved vs Holdout)</text>
+      <text x="24" y="46" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="11">Side-by-side box & whisker plots with individual trial points</text>
+
+      <!-- Reserved Box Plot -->
+      <g transform="translate(260, 80)">
+        <text x="40" y="-10" fill="#00E5FF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700" text-anchor="middle">RESERVED (C2)</text>
+        <line x1="40" y1="20" x2="40" y2="200" stroke="#00E5FF" stroke-dasharray="3,3"/>
+        <rect x="10" y="90" width="60" height="40" fill="rgba(0,229,255,0.15)" stroke="#00E5FF" stroke-width="2"/>
+        <line x1="10" y1="105" x2="70" y2="105" stroke="#00E5FF" stroke-width="3"/>
+        <text x="78" y="108" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="11">med: 1.98s</text>
+      </g>
+
+      <!-- Holdout Box Plot -->
+      <g transform="translate(680, 80)">
+        <text x="40" y="-10" fill="#FFB300" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700" text-anchor="middle">HOLDOUT (C0)</text>
+        <line x1="40" y1="10" x2="40" y2="220" stroke="#FFB300" stroke-dasharray="3,3"/>
+        <rect x="10" y="40" width="60" height="80" fill="rgba(255,179,0,0.15)" stroke="#FFB300" stroke-width="2"/>
+        <line x1="10" y1="75" x2="70" y2="75" stroke="#FFB300" stroke-width="3"/>
+        <text x="78" y="78" fill="#FFB300" font-family="'JetBrains Mono', monospace" font-size="11">med: 4.58s</text>
+      </g>
+    </g>
+
+    <!-- Contention Bins Panel -->
+    <g transform="translate(0, 454)">
+      <rect x="0" y="0" width="996" height="220" rx="10" fill="#111720" stroke="#243447" stroke-width="1"/>
+      <text x="24" y="28" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="14" font-weight="700">Performance Across Contention Bins</text>
+
+      <g transform="translate(24, 46)">
+        <rect x="0" y="0" width="300" height="150" rx="6" fill="#16202B" stroke="#243447" stroke-width="1"/>
+        <text x="16" y="24" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700">Idle Load (&lt;5% PSI)</text>
+        <text x="16" y="55" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="12">Reserved: 1.84s • Holdout: 1.82s</text>
+        <text x="16" y="80" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">Delta: +0.82% (Bounded harm safe)</text>
+      </g>
+      <g transform="translate(348, 46)">
+        <rect x="0" y="0" width="300" height="150" rx="6" fill="#16202B" stroke="#243447" stroke-width="1"/>
+        <text x="16" y="24" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700">Moderate (5-20% PSI)</text>
+        <text x="16" y="55" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="12">Reserved: 1.98s • Holdout: 4.58s</text>
+        <text x="16" y="80" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="11">Speedup: +56.5% (p &lt; 0.0001)</text>
+      </g>
+      <g transform="translate(672, 46)">
+        <rect x="0" y="0" width="300" height="150" rx="6" fill="#16202B" stroke="#243447" stroke-width="1"/>
+        <text x="16" y="24" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700">High Load (≥20% PSI)</text>
+        <text x="16" y="55" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="12">Reserved: 1.98s • Holdout: 8.35s</text>
+        <text x="16" y="80" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="11">Speedup: +75.6% (p &lt; 10⁻¹⁵)</text>
+      </g>
+    </g>
+    
+      </g>
+    </svg>

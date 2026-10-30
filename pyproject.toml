@@ -27,4 +27,4 @@ precompile = "precompile.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["precompile*"]
+include = ["precompile*", "dashboard*"]

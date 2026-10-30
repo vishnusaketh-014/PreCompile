@@ -6,7 +6,7 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
@@ -26,6 +26,14 @@ venv/
 ENV/
 env/
 
+# Frontend & Node
+node_modules/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
 # Testing & Coverage
 .pytest_cache/
 .coverage
@@ -42,20 +50,15 @@ htmlcov/
 config.yaml
 benchmarks/results/
 benchmarks/results_pilot1/
+benchmarks/results_*/
 *.jsonl
 
-
-# IDE / Editors
+# IDE & OS
 .vscode/
 .idea/
 *.swp
+*.swo
 *.o
 big_prog
-
-*.swo
-
-benchmarks/results_*/
-*.txt
-report.html
-SPEC_SUMMARY.md
-*.pdf
+.DS_Store
+Thumbs.db

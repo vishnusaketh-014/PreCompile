@@ -1,0 +1,117 @@
+<svg width="1366" height="768" viewBox="0 0 1366 768" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="1366" height="768" fill="#050810"/>
+      
+    <rect x="0" y="0" width="220" height="768" fill="#0D1117" stroke="#1E2D40" stroke-width="1"/>
+    <!-- Brand -->
+    <text x="20" y="36" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="16" font-weight="800">⚡ PreCompile</text>
+    <rect x="130" y="24" width="34" height="16" rx="3" fill="rgba(124,58,237,0.15)" stroke="#9461FF" stroke-width="1"/>
+    <text x="147" y="35" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="700" text-anchor="middle">v1.5</text>
+    <text x="20" y="54" fill="#64748B" font-family="'JetBrains Mono', monospace" font-size="10">Anticipatory Priority</text>
+
+    <!-- Source Pill -->
+    <rect x="20" y="74" width="130" height="24" rx="12" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+    <circle cx="34" cy="86" r="4" fill="#10B981"/>
+    <text x="46" y="90" fill="#F1F5F9" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="600">LIVE: SQLite</text>
+    
+        <g transform="translate(12, 120)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⚖</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Compare (A/B)</text>
+        </g>
+        
+        <g transform="translate(12, 162)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⬡</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Live Overview</text>
+        </g>
+        
+        <g transform="translate(12, 204)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⏱</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Prediction Timeline</text>
+        </g>
+        
+        <g transform="translate(12, 246)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📊</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Reserved vs Holdout</text>
+        </g>
+        
+        <g transform="translate(12, 288)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📈</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Benefit Estimator</text>
+        </g>
+        
+        <g transform="translate(12, 330)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="rgba(124, 58, 237, 0.15)" stroke="rgba(124, 58, 237, 0.35)" stroke-width="1"/>
+          <text x="14" y="22" fill="#9461FF" font-size="14">🛡</text>
+          <text x="36" y="22" fill="#9461FF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700">Safety Governor</text>
+        </g>
+        
+        <g transform="translate(12, 372)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">🧪</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Experiments</text>
+        </g>
+        
+        <g transform="translate(12, 414)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📜</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Decision Log</text>
+        </g>
+        
+    <!-- Sidebar Footer -->
+    <g transform="translate(14, 708)">
+      <rect x="0" y="0" width="192" height="30" rx="4" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+      <text x="96" y="19" fill="#F1F5F9" font-family="'Space Grotesk', sans-serif" font-size="11" font-weight="600" text-anchor="middle">📺 Presentation Mode [P]</text>
+    </g>
+    
+      
+    <rect x="220" y="0" width="1146" height="64" fill="#0D1117" stroke="#1E2D40" stroke-width="1"/>
+    <text x="248" y="32" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="18" font-weight="700">Safety Governor</text>
+    <text x="248" y="48" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="11">Boost budget, circuit breaker & anti-starvation guards</text>
+
+    <!-- Topbar Actions -->
+    <g transform="translate(1066, 20)">
+      <rect x="0" y="0" width="110" height="24" rx="12" fill="#16202B" stroke="#F59E0B" stroke-width="1"/>
+      <text x="55" y="16" fill="#F59E0B" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700" text-anchor="middle">▶ Replay Mode</text>
+
+      <rect x="120" y="0" width="140" height="24" rx="12" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+      <circle cx="132" cy="12" r="4" fill="#10B981"/>
+      <text x="144" y="16" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="10">SSE Live (1 Hz)</text>
+    </g>
+    
+      <g transform="translate(244, 84)">
+        
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="16" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">KILL SWITCH</text>
+      <text x="16" y="54" fill="#00E676" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">DISENGAGED</text>
+
+      <rect x="254" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="270" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">CIRCUIT BREAKER</text>
+      <text x="270" y="54" fill="#00E676" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">CLEAR</text>
+
+      <rect x="508" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="524" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">DESCENDANT LEAKS</text>
+      <text x="524" y="54" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">0 LEAKS</text>
+
+      <rect x="762" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="778" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">DAEMON OVERHEAD</text>
+      <text x="778" y="54" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">3.45%</text>
+    </g>
+
+    <!-- Budget Gauge -->
+    <g transform="translate(0, 94)">
+      <rect x="0" y="0" width="996" height="180" rx="10" fill="#111720" stroke="#243447" stroke-width="1"/>
+      <text x="24" y="28" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="14" font-weight="700">Rolling Elevated Boost Budget Gauge (Anti-Starvation)</text>
+      <rect x="24" y="60" width="948" height="20" rx="10" fill="#0B0F14" stroke="#243447" stroke-width="1"/>
+      <rect x="24" y="60" width="126" height="20" rx="10" fill="#00E5FF"/>
+      <text x="24" y="105" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">0s</text>
+      <text x="150" y="105" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="11">120.0s consumed (13.3%)</text>
+      <text x="930" y="105" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">900s (Limit)</text>
+    </g>
+    
+      </g>
+    </svg>

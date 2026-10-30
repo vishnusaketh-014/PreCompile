@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PreCompile - Reconnaissance & Setup Report</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 15mm 18mm 15mm;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a;
+    line-height: 1.5;
+    font-size: 10.5pt;
+    margin: 0;
+    padding: 0;
+  }
+  h1 {
+    font-size: 20pt;
+    color: #0f172a;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 6px;
+    margin-top: 0;
+    margin-bottom: 8px;
+  }
+  h2 {
+    font-size: 14pt;
+    color: #1e293b;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 4px;
+    margin-top: 22px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #334155;
+    margin-top: 16px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+  .subtitle {
+    font-size: 10.5pt;
+    color: #64748b;
+    margin-bottom: 16px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    background-color: #e0f2fe;
+    color: #0369a1;
+    margin-right: 6px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    font-weight: 600;
+  }
+  tr:nth-child(even) {
+    background-color: #f8fafc;
+  }
+  code, pre {
+    font-family: "Cascadia Code", "Fira Code", "Source Code Pro", Consolas, monospace;
+  }
+  code {
+    background-color: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9pt;
+    color: #0969da;
+  }
+  pre {
+    background-color: #0f172a;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 8.5pt;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    page-break-inside: avoid;
+    margin: 10px 0;
+  }
+  .formula-box {
+    background-color: #f8fafc;
+    border-left: 4px solid #2563eb;
+    padding: 8px 14px;
+    margin: 10px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  .callout {
+    background-color: #fefce8;
+    border: 1px solid #fef08a;
+    border-left: 4px solid #ca8a04;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 12px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  .diagram-box {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 10px;
+    border-radius: 6px;
+    font-family: Consolas, monospace;
+    font-size: 8pt;
+    line-height: 1.25;
+    white-space: pre;
+    overflow-x: auto;
+    page-break-inside: avoid;
+    margin: 10px 0;
+  }
+  .page-break {
+    page-break-before: auto;
+  }
+  .footer {
+    margin-top: 24px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 8.5pt;
+    color: #94a3b8;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<h1>PreCompile: Reconnaissance & Setup Report</h1>
+<div class="subtitle">
+  <span class="badge">SPEC: IDF-B_PreCompile_Final.pdf</span>
+  <span class="badge">STATUS: Recon & Skeleton Complete</span>
+  <span class="badge">DATE: October 17, 2026</span>
+</div>
+
+<p>
+This document consolidates the complete output of the reconnaissance, environment probing, specification breakdown, repository skeleton setup, and 11-step implementation roadmap for <strong>PreCompile</strong> (an anticipatory, confidence-gated scheduling priority reservation system using learned event-to-process latency for Linux).
+</p>
+
+<!-- ========================================== -->
+<h2>1. Environment Detection & Subsystem Analysis</h2>
+<!-- ========================================== -->
+
+<p>Probing commands were executed directly inside the active Linux subsystem (<strong>Ubuntu on WSL2</strong>):</p>
+
+<h3>Raw Subsystem Probe Output</h3>
+<pre><code>$ uname -r
+6.18.33.2-microsoft-standard-WSL2
+
+$ cat /etc/os-release
+PRETTY_NAME="Ubuntu 26.04 LTS"
+NAME="Ubuntu"
+VERSION_ID="26.04"
+VERSION="26.04 (Resolute Raccoon)"
+ID=ubuntu
+
+$ systemd-detect-virt
+wsl
+
+$ stat -fc %T /sys/fs/cgroup
+cgroup2fs
+
+$ cat /sys/fs/cgroup/cgroup.controllers
+cpuset cpu io memory hugetlb pids rdma
+
+$ cat /proc/pressure/cpu
+some avg10=3.27 avg60=0.72 avg300=0.15 total=522104
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+$ cat /proc/sys/fs/inotify/max_user_watches
+524288
+
+$ python3 --version; gcc --version | head -1; make --version | head -1
+Python 3.14.4
+sh: 1: gcc: not found
+sh: 1: make: not found</code></pre>
+
+<h3>Subsystem Assessment & Required Fallbacks</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Subsystem / Property</th>
+      <th>Observed Value</th>
+      <th>Design Impact / Limitation</th>
+      <th>Required Fallback Strategy</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Virtualization Platform</strong></td>
+      <td><code>wsl</code> (WSL2)</td>
+      <td>Cross-OS mounts (<code>/mnt/c/...</code>) use 9P/drvfs, introducing filesystem latency and potential inotify event lag for Windows-hosted files. <code>systemd</code> init may also be disabled.</td>
+      <td><strong>Fallback:</strong> Benchmarking and project registration should reside on native ext4 mounts (e.g. <code>~/projects/...</code>). Support direct background daemon execution (PID-based) in addition to systemd unit files.</td>
+    </tr>
+    <tr>
+      <td><strong>Cgroup Hierarchy</strong></td>
+      <td><code>cgroup2fs</code></td>
+      <td><strong>Fully supported:</strong> Unified cgroup v2 hierarchy is enabled and mounted.</td>
+      <td>None needed.</td>
+    </tr>
+    <tr>
+      <td><strong>CPU Controller</strong></td>
+      <td>Present (<code>cpu</code>)</td>
+      <td><code>cpu.weight</code> manipulation is supported by the kernel, but requires <code>root</code> or delegated cgroup permission.</td>
+      <td><strong>Fallback:</strong> Daemon runs as <code>root</code> (or with user delegation); without privilege, degrades gracefully to observation-only mode per Stage 10.</td>
+    </tr>
+    <tr>
+      <td><strong>CPU Pressure (PSI)</strong></td>
+      <td>Supported (<code>some</code> avg10/60/300)</td>
+      <td><code>/proc/pressure/cpu</code> is active and exporting valid contention metrics.</td>
+      <td>None needed.</td>
+    </tr>
+    <tr>
+      <td><strong>Inotify Watch Limit</strong></td>
+      <td><code>524,288</code> watches</td>
+      <td>Very generous limit; easily monitors extensive source trees.</td>
+      <td>None needed.</td>
+    </tr>
+    <tr>
+      <td><strong>Toolchain</strong></td>
+      <td><code>gcc</code> &amp; <code>make</code> missing</td>
+      <td>Target C/C++ projects cannot be compiled without installing build tools.</td>
+      <td><strong>Fallback:</strong> Install <code>build-essential</code> and <code>stress-ng</code> prior to running Stage 11 benchmarks.</td>
+    </tr>
+    <tr>
+      <td><strong>Python Environment</strong></td>
+      <td>Python 3.14.4</td>
+      <td>Excellent choice: native access to <code>ctypes</code>, <code>os</code>, <code>sqlite3</code>, <code>asyncio</code>, and file-based cgroup manipulation without native build overhead.</td>
+      <td>None needed.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<!-- ========================================== -->
+<h2>2. System Specification Summary (SPEC_SUMMARY.md)</h2>
+<!-- ========================================== -->
+
+<h3>2.1 System Architecture & Stage Mapping</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Stage</th>
+      <th>Name</th>
+      <th>Key Responsibilities</th>
+      <th>Module</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Stage 1</strong></td>
+      <td>Event Detection</td>
+      <td>Watches project roots using inotify (IN_CLOSE_WRITE, IN_MOVED_TO); debounces rapid save bursts (0.15s window); filters VCS/temp files; suppresses saves while claimed build is running.</td>
+      <td><code>precompile/monitor.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 2</strong></td>
+      <td>Process-Creation Observation</td>
+      <td>Detects process spawns via /proc polling (first pass) or netlink proc connector (cn_proc); matches executables against tool profiles; validates resolved working directories; tracks process hierarchy.</td>
+      <td><code>precompile/watcher.py</code><br><code>precompile/matcher.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 3</strong></td>
+      <td>Event-Conditioned Latency Learning</td>
+      <td>Records delay <em>x</em> between save and matching build; discards delays &gt;30s; tracks running EWMA mean and variance per (project, file_class, tool_profile); applies 3-sigma outlier clipping.</td>
+      <td><code>precompile/predictor.py</code><br><code>precompile/store.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 4</strong></td>
+      <td>Confidence Gate &amp; Prediction Window</td>
+      <td>Calculates prediction window [mean - 2&sigma; - 0.3s, mean + 2&sigma; + 0.3s]; enforces confidence gate (&ge;5 samples, CV &le; 0.5 or &sigma; &le; 0.25s, rolling hit-rate &ge; 0.6 over last 10 once &ge;5 exist).</td>
+      <td><code>precompile/predictor.py</code><br><code>precompile/gates.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 5</strong></td>
+      <td>Contention-Gated, Cost-Aware Arming</td>
+      <td>Reads /proc/pressure/cpu (PSI); evaluates expected benefit against expected cost of false reservation; arms reservation only under contention.</td>
+      <td><code>precompile/gates.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 6</strong></td>
+      <td>Anticipatory Reservation</td>
+      <td>Allocates empty cgroup v2 with elevated cpu.weight before build process exists; sets state to ARMED; resets timer on newer saves; limits concurrency (max 1 per project).</td>
+      <td><code>precompile/reservation.py</code><br><code>precompile/cgroup.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 7</strong></td>
+      <td>Identity-Bound Claiming</td>
+      <td>Intensifies scan during ACTIVE window; atomically claims matching process via test-and-set flag (supports early ARMED-to-CLAIMED); moves PID and existing children into cgroup.</td>
+      <td><code>precompile/reservation.py</code><br><code>precompile/matcher.py</code><br><code>precompile/cgroup.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 8</strong></td>
+      <td>Expiry, Release &amp; Feedback</td>
+      <td>Governs lifecycle (IDLE, ARMED, ACTIVE, CLAIMED, EXPIRED, CLOSED, CANCELLED); releases cgroup when empty or on window expiry; feeds delays, hits, and misses to learning engine.</td>
+      <td><code>precompile/reservation.py</code><br><code>precompile/store.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 9</strong></td>
+      <td>Self-Measured Benefit</td>
+      <td>Withholds random share of reservations (holdouts); compares build durations at matched contention levels; scales weight down or stops arming if no speedup is realized.</td>
+      <td><code>precompile/benefit.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Stage 10</strong></td>
+      <td>Safety, Bounded Harm &amp; Fallback</td>
+      <td>Prohibits real-time scheduling classes (CFS only); enforces weight caps (&le;500), max boost duration, hourly quotas; cleans stale cgroups; degrades to observation-only without privilege.</td>
+      <td><code>precompile/safety.py</code><br><code>precompile/config.py</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.2 Exact Predictor Equations &amp; Thresholds</h3>
+<div class="formula-box">
+  <strong>1. Correlation Window &amp; Outlier Clipping:</strong><br>
+  Accept delay <em>x</em> only if: <code>x &le; 30.0 s</code>.<br>
+  Clip outlier before EWMA update: <code>x_clipped = max(&mu; - 3&sigma;, min(x, &mu; + 3&sigma;))</code> (once &ge; 5 samples exist).<br><br>
+  <strong>2. EWMA Mean &amp; Variance Formulation (&alpha; = 0.2):</strong><br>
+  <code>&mu;_n = (1 - &alpha;) &middot; &mu;_(n-1) + &alpha; &middot; x_clipped</code><br>
+  <code>var_n = (1 - &alpha;) &middot; (var_(n-1) + &alpha; &middot; (x_clipped - &mu;_(n-1))&sup2;)</code><br>
+  <code>&sigma;_n = &radic;(var_n)</code><br><br>
+  <strong>3. Reservation Prediction Window (k = 2.0, m = 0.3s):</strong><br>
+  <code>Window = [ max(0, &mu;_n - 2&sigma;_n - 0.3s), &mu;_n + 2&sigma;_n + 0.3s ]</code><br><br>
+  <strong>4. Confidence Gate Thresholds:</strong><br>
+  &bull; Sample Count: <code>N &ge; 5</code><br>
+  &bull; Variability: <code>CV = &sigma; / &mu; &le; 0.5</code> OR <code>&sigma; &le; 0.25 s</code> (for very small means)<br>
+  &bull; Recent Hit-Rate: <code>Hit-Rate &ge; 0.6</code> over last 10 predictions (once &ge; 5 predictions logged)
+</div>
+
+<h3>2.3 Reservation State Machine</h3>
+<div class="diagram-box">
+                 +------------------------------------------------+
+                 |                 early match:                   |
+                 |      process appears before window opens       |
+                 v                                                |
+   save + gate   +-----------+    window opens    +----------+    |
+--&gt; passed -----&gt;|   ARMED   |-------------------&gt;|  ACTIVE  |    |
+                 +-----+-----+                    +----+-----+    |
+                       |                               |          |
+                       | window ends,                  | process  |
+                       | no match                      | matched  |
+                       v                               v          |
+                 +-----------+                    +----------+    |
+                 |  EXPIRED  |                    | CLAIMED  +----+
+                 +-----+-----+                    +----+-----+
+                       |                               | build ends
+                       |                               v (cgroup empty / max lifetime)
+                       |                          +----------+
+                       |                          |  CLOSED  |
+                       |                          +----+-----+
+                       |                               |
+                       v                               v
+               +----------------------------------------------+
+               |         Outcome Recorded / Model Updated     |
+               |             (cgroup removed / IDLE)          |
+               +----------------------------------------------+
+                       ^
+                       | From any state on shutdown, fatal error,
+                       | or project disabled:
+                 +-----+-----+
+                 | CANCELLED |
+                 +-----------+
+</div>
+
+<h3>2.4 Process Claiming &amp; Safety Rules</h3>
+<ul>
+  <li><strong>Identity Criteria:</strong> Executable in project tool profile (<code>gcc</code>, <code>clang</code>, <code>make</code>, etc.); resolved working directory (via <code>realpath</code>) within project root; not already in a reserved cgroup.</li>
+  <li><strong>Atomic Claim:</strong> Atomic test-and-set claim flag ensures exactly one process claims the reservation.</li>
+  <li><strong>Ancestor Hierarchy:</strong> If multiple candidates appear concurrently, the topmost ancestor within the project is claimed; existing children are migrated into the cgroup; future children inherit automatically.</li>
+  <li><strong>Safety Invariants:</strong> Real-time scheduling (<code>SCHED_FIFO</code>, <code>SCHED_RR</code>) is strictly forbidden; CPU weight is capped (<code>cpu.weight &le; 500</code>); boosts have bounded maximum lifetime; stale cgroups are purged at startup.</li>
+</ul>
+
+<h3>2.5 Validation Protocol (Section 8)</h3>
+<ul>
+  <li><strong>Compared Conditions:</strong> <code>C0</code> (no system/baseline), <code>C1</code> (reactive boost after spawn), <code>C2</code> (full PreCompile), <code>C3</code> (static always-on boost).</li>
+  <li><strong>5 Ablation Studies:</strong> (A1) Reactive boost; (A2) Without confidence gate; (A3) Without contention gate; (A4) Fixed static window; (A5) Without randomized holdouts.</li>
+  <li><strong>Trigger Scenarios:</strong> (A) Automatic build after save; (B) Irregular manual build (gate abstains); (C) Save without build (clean expiry).</li>
+  <li><strong>Key Metrics:</strong> Build completion time (median and 95th percentile), prediction hit-rate, false-reservation rate, claim latency, CPU overhead. Evaluated over &ge;50 repeated interleaved runs per condition with Mann-Whitney U significance testing.</li>
+</ul>
+
+<div class="page-break"></div>
+
+<!-- ========================================== -->
+<h2>3. Repository Skeleton &amp; Design Decisions</h2>
+<!-- ========================================== -->
+
+<h3>3.1 Repository Structure</h3>
+<pre><code>precompile/
+├── cli.py         # Entry point (daemon, status, projects, predict) - Stages 1-10
+├── config.py      # AppConfig, thresholds, safety limits - Stage 10
+├── monitor.py     # inotify save event watcher & debouncing - Stage 1
+├── watcher.py     # Process creation detection (/proc, cn_proc) - Stage 2
+├── matcher.py     # Executable tool & project root matcher - Stages 2 & 7
+├── store.py       # SQLite database layer - Stages 3, 4, 8, 9
+├── predictor.py   # EWMA latency learning & window calculation - Stages 3 & 4
+├── gates.py       # Confidence gate & PSI CPU contention gate - Stages 4 & 5
+├── reservation.py # Reservation state machine & atomic claim - Stages 6, 7, 8
+├── cgroup.py      # Linux cgroup v2 controller - Stages 6 & 7
+├── benefit.py     # Randomized holdouts & self-measured benefit - Stage 9
+└── safety.py      # Harm bounding, budget caps & privilege checks - Stage 10
+tests/
+├── __init__.py
+└── test_skeleton.py # Structural verification suite
+pyproject.toml, README.md, PLAN.md, .gitignore</code></pre>
+
+<h3>3.2 Recorded Design Decisions</h3>
+<ul>
+  <li><strong>Single CLI entry point:</strong> Unified <code>precompile</code> CLI provides subcommands: <code>daemon</code>, <code>status</code>, <code>projects</code>, and <code>predict</code>.</li>
+  <li><strong>/proc polling in first pass:</strong> Process detection uses <code>/proc</code> table polling initially, leaving netlink process connector (<code>cn_proc</code>) as a zero-latency later upgrade.</li>
+  <li><strong>SQLite for dynamic data, YAML for settings:</strong> SQLite (<code>precompile.db</code>) stores projects, latency samples, prediction records, and holdout history. <code>config.yaml</code> is reserved exclusively for static settings.</li>
+  <li><strong>Root execution with graceful degradation:</strong> Daemon runs as <code>root</code> for cgroup v2 operations. When run unprivileged, it degrades to observation-only mode without crashing (Stage 10).</li>
+  <li><strong>Observation-first implementation:</strong> Steps 1 to 6 focus strictly on observation, learning, and gating without applying kernel scheduling modifications.</li>
+</ul>
+
+<h3>3.3 Skeleton Verification Output</h3>
+<pre><code>$ python3 -m unittest discover -s tests
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK</code></pre>
+
+<!-- ========================================== -->
+<h2>4. Implementation Roadmap (PLAN.md)</h2>
+<!-- ========================================== -->
+
+<table>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>Deliverable</th>
+      <th>Verification Protocol</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1. Recon + Skeleton</strong></td>
+      <td>Environment probe, <code>SPEC_SUMMARY.md</code>, repository skeleton with stage-mapped Python modules, type signatures, and tests.</td>
+      <td><code>python3 -m unittest discover -s tests</code> confirms clean imports and <code>NotImplementedError</code> stubs.</td>
+    </tr>
+    <tr>
+      <td><strong>2. File Monitor</strong></td>
+      <td><code>precompile/monitor.py</code>: inotify watches, 0.15s debouncing to last timestamp, ignore filters (.git, build dirs), save suppression during builds.</td>
+      <td><code>tests/test_monitor.py</code>: simulates save bursts, asserts 1 debounced event with final timestamp, verifies ignore patterns and suppression.</td>
+    </tr>
+    <tr>
+      <td><strong>3. Process Watcher + Matcher</strong></td>
+      <td><code>precompile/watcher.py</code> (/proc polling at 10ms) &amp; <code>precompile/matcher.py</code> (tool binary match, realpath cwd inside project, topmost ancestor resolution).</td>
+      <td><code>tests/test_watcher.py</code> &amp; <code>test_matcher.py</code>: spawn subshell commands, assert PID/cwd extraction, out-of-tree rejection, ancestor tree resolution.</td>
+    </tr>
+    <tr>
+      <td><strong>4. SQLite Store</strong></td>
+      <td><code>precompile/store.py</code>: schema for projects, delay samples, prediction outcomes, holdouts; WAL mode; rolling 10-sample hit-rate queries.</td>
+      <td><code>tests/test_store.py</code>: project CRUD, sample logging, rolling hit-rate calculation under temporary SQLite database.</td>
+    </tr>
+    <tr>
+      <td><strong>5. Predictor + Confidence Gate + Window</strong></td>
+      <td><code>precompile/predictor.py</code> (EWMA &alpha;=0.2, 3&sigma; clip, 30s window) &amp; <code>precompile/gates.py</code> (&ge;5 samples, CV&le;0.5 or &sigma;&le;0.25s, hit-rate&ge;0.6).</td>
+      <td><code>tests/test_predictor.py</code> &amp; <code>test_gates.py</code>: verify EWMA against known vector, 3&sigma; clipping, correlation discard, gate abstention on high variance.</td>
+    </tr>
+    <tr>
+      <td><strong>6. Daemon + CLI Observation Mode</strong></td>
+      <td>Observation-only daemon in <code>precompile/cli.py</code> integrating monitor, watcher, matcher, store, predictor; CLI subcommands (daemon, status, projects, predict).</td>
+      <td>Register mock project, trigger simulated saves and builds with fixed delays; verify via <code>precompile status</code> that EWMA converges without root.</td>
+    </tr>
+    <tr>
+      <td><strong>7. Arming Gate (PSI, Cost/Benefit, Holdout)</strong></td>
+      <td>PSI reader parsing <code>/proc/pressure/cpu</code>, contention threshold, expected benefit vs. cost model, randomized 10% holdout selector.</td>
+      <td><code>tests/test_gates.py</code>: mock idle and high CPU pressure inputs; verify uncontented systems reject arming; verify 10% holdout distribution across 1000 trials.</td>
+    </tr>
+    <tr>
+      <td><strong>8. Reservation Manager + Cgroup Controller</strong></td>
+      <td><code>precompile/cgroup.py</code> (cgroup2fs, elevated cpu.weight=500, cgroup.procs migration, emptiness poll) &amp; <code>precompile/reservation.py</code> (state machine, early ARMED-to-CLAIMED, atomic claim).</td>
+      <td><code>tests/test_reservation.py</code> &amp; <code>test_cgroup.py</code>: state machine transitions, early claim in ARMED, atomic claim race tests, cgroup creation/removal.</td>
+    </tr>
+    <tr>
+      <td><strong>9. Benefit Estimator</strong></td>
+      <td><code>precompile/benefit.py</code>: matched-load comparison of reserved vs. holdout build times, Mann-Whitney U test, dynamic weight downward scaling.</td>
+      <td><code>tests/test_benefit.py</code>: synthetic datasets with speedup (weight maintained) vs. zero speedup (weight decreased and arming disabled).</td>
+    </tr>
+    <tr>
+      <td><strong>10. Safety + Systemd + Ablation Flags</strong></td>
+      <td><code>precompile/safety.py</code>: no-realtime invariant, weight cap &le;500, max duration, hourly quota, stale cgroup cleaning, non-root fallback; systemd service; CLI ablation flags (A1-A5).</td>
+      <td><code>tests/test_safety.py</code>: hourly budget exhaustion test, non-root fallback warning test, stale cgroup scrubber test, ablation flag toggling.</td>
+    </tr>
+    <tr>
+      <td><strong>11. Evaluation Harness (C0-C3, Ablations, Concurrency)</strong></td>
+      <td>Benchmark test harness in <code>benchmarks/</code> running &ge;50 interleaved runs across C0-C3, 5 ablations, under stress-ng load; concurrency &amp; holdout validation tests.</td>
+      <td>Run automated test matrix; assert C2 median build time &lt; C0/C1 under contention, zero multiple-claim races in concurrency test, report p-values.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  PreCompile Project &bull; Reconnaissance &amp; Setup Report &bull; Generated October 17, 2026
+</div>
+
+</body>
+</html>

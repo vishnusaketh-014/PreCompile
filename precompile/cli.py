@@ -320,6 +320,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume = subparsers.add_parser("resume", help="Disengage kill switch to resume reservation actuation")
     p_resume.add_argument("--pause-file", default=None, help="Path to pause flag file")
 
+    # 10. dashboard (Web telemetric monitoring)
+    p_dash = subparsers.add_parser("dashboard", help="Start the read-only web monitoring dashboard")
+    p_dash.add_argument("--port", type=int, default=8787, help="Port to listen on (default: 8787)")
+    p_dash.add_argument("--host", default="0.0.0.0", help="Host address to bind to (default: 0.0.0.0)")
+    p_dash.add_argument("--db", default=None, help="Path to database file")
+    p_dash.add_argument("--results-dir", default=None, help="Path to benchmark results directory")
+
     return parser
 
 
@@ -852,6 +859,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_pause(args)
     elif args.subcommand == "resume":
         return cmd_resume(args)
+    elif args.subcommand == "dashboard":
+        from precompile.dashboard import run_dashboard
+        return run_dashboard(args)
     else:
         parser.print_help()
         return 0

@@ -1,0 +1,160 @@
+<svg width="1366" height="768" viewBox="0 0 1366 768" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="1366" height="768" fill="#050810"/>
+      
+    <rect x="0" y="0" width="220" height="768" fill="#0D1117" stroke="#1E2D40" stroke-width="1"/>
+    <!-- Brand -->
+    <text x="20" y="36" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="16" font-weight="800">⚡ PreCompile</text>
+    <rect x="130" y="24" width="34" height="16" rx="3" fill="rgba(124,58,237,0.15)" stroke="#9461FF" stroke-width="1"/>
+    <text x="147" y="35" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="9" font-weight="700" text-anchor="middle">v1.5</text>
+    <text x="20" y="54" fill="#64748B" font-family="'JetBrains Mono', monospace" font-size="10">Anticipatory Priority</text>
+
+    <!-- Source Pill -->
+    <rect x="20" y="74" width="130" height="24" rx="12" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+    <circle cx="34" cy="86" r="4" fill="#10B981"/>
+    <text x="46" y="90" fill="#F1F5F9" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="600">LIVE: SQLite</text>
+    
+        <g transform="translate(12, 120)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⚖</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Compare (A/B)</text>
+        </g>
+        
+        <g transform="translate(12, 162)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">⬡</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Live Overview</text>
+        </g>
+        
+        <g transform="translate(12, 204)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="rgba(124, 58, 237, 0.15)" stroke="rgba(124, 58, 237, 0.35)" stroke-width="1"/>
+          <text x="14" y="22" fill="#9461FF" font-size="14">⏱</text>
+          <text x="36" y="22" fill="#9461FF" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="700">Prediction Timeline</text>
+        </g>
+        
+        <g transform="translate(12, 246)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📊</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Reserved vs Holdout</text>
+        </g>
+        
+        <g transform="translate(12, 288)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📈</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Benefit Estimator</text>
+        </g>
+        
+        <g transform="translate(12, 330)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">🛡</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Safety Governor</text>
+        </g>
+        
+        <g transform="translate(12, 372)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">🧪</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Experiments</text>
+        </g>
+        
+        <g transform="translate(12, 414)">
+          <rect x="0" y="0" width="196" height="34" rx="6" fill="transparent" stroke="transparent" stroke-width="1"/>
+          <text x="14" y="22" fill="#94A3B8" font-size="14">📜</text>
+          <text x="36" y="22" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="12" font-weight="500">Decision Log</text>
+        </g>
+        
+    <!-- Sidebar Footer -->
+    <g transform="translate(14, 708)">
+      <rect x="0" y="0" width="192" height="30" rx="4" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+      <text x="96" y="19" fill="#F1F5F9" font-family="'Space Grotesk', sans-serif" font-size="11" font-weight="600" text-anchor="middle">📺 Presentation Mode [P]</text>
+    </g>
+    
+      
+    <rect x="220" y="0" width="1146" height="64" fill="#0D1117" stroke="#1E2D40" stroke-width="1"/>
+    <text x="248" y="32" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="18" font-weight="700">Prediction Timeline</text>
+    <text x="248" y="48" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="11">Event-to-process latency swimlanes & claim delays</text>
+
+    <!-- Topbar Actions -->
+    <g transform="translate(1066, 20)">
+      <rect x="0" y="0" width="110" height="24" rx="12" fill="#16202B" stroke="#F59E0B" stroke-width="1"/>
+      <text x="55" y="16" fill="#F59E0B" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700" text-anchor="middle">▶ Replay Mode</text>
+
+      <rect x="120" y="0" width="140" height="24" rx="12" fill="#16202B" stroke="#1E2D40" stroke-width="1"/>
+      <circle cx="132" cy="12" r="4" fill="#10B981"/>
+      <text x="144" y="16" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="10">SSE Live (1 Hz)</text>
+    </g>
+    
+      <g transform="translate(244, 84)">
+        
+    <!-- Metric summary strip -->
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="16" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">MEAN DELAY (μ)</text>
+      <text x="16" y="54" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">1.80s</text>
+
+      <rect x="254" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="270" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">WINDOW WIDTH</text>
+      <text x="270" y="54" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">0.80s</text>
+
+      <rect x="508" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#243447" stroke-width="1"/>
+      <text x="524" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">MEAN PREDICTION ERROR</text>
+      <text x="524" y="54" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">±0.04s</text>
+
+      <rect x="762" y="0" width="234" height="74" rx="8" fill="#16202B" stroke="#00E5FF" stroke-width="1"/>
+      <text x="778" y="24" fill="#94A3B8" font-family="'Space Grotesk', sans-serif" font-size="10" font-weight="700">ROLLING HIT RATE</text>
+      <text x="778" y="54" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="22" font-weight="700">100.0%</text>
+    </g>
+
+    <!-- Main Swimlanes Panel -->
+    <g transform="translate(0, 94)">
+      <rect x="0" y="0" width="996" height="580" rx="10" fill="#111720" stroke="#243447" stroke-width="1"/>
+      <text x="24" y="28" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="14" font-weight="700">Build Cycle Latency Swimlanes</text>
+      <text x="24" y="46" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="11">Visual alignment of file save (t=0), predicted window [LO, HI], actual spawn, and claim</text>
+
+      <!-- Swimlane 1 -->
+      <g transform="translate(24, 70)">
+        <rect x="0" y="0" width="948" height="68" rx="6" fill="#16202B" stroke="#243447" stroke-width="1"/>
+        <text x="16" y="24" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700">build-48</text>
+        <rect x="80" y="12" width="40" height="16" rx="3" fill="rgba(0,229,255,0.15)"/>
+        <text x="100" y="23" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="9" text-anchor="middle">HIT</text>
+        <text x="16" y="46" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">Spawn: 1.81s | Err: +0.01s | Claim: 44.2ms</text>
+
+        <!-- Track -->
+        <rect x="260" y="18" width="660" height="28" rx="4" fill="#0B0F14" stroke="#243447" stroke-width="1"/>
+        <!-- Window -->
+        <rect x="520" y="18" width="160" height="28" fill="rgba(0,229,255,0.2)" stroke="#00E5FF" stroke-width="1"/>
+        <!-- Save Pip -->
+        <text x="268" y="37" font-size="12">💾</text>
+        <!-- Spawn Pip -->
+        <text x="602" y="37" font-size="12">🚀</text>
+      </g>
+
+      <!-- Swimlane 2 -->
+      <g transform="translate(24, 150)">
+        <rect x="0" y="0" width="948" height="68" rx="6" fill="#16202B" stroke="#243447" stroke-width="1"/>
+        <text x="16" y="24" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700">build-47</text>
+        <rect x="80" y="12" width="40" height="16" rx="3" fill="rgba(0,229,255,0.15)"/>
+        <text x="100" y="23" fill="#00E5FF" font-family="'JetBrains Mono', monospace" font-size="9" text-anchor="middle">HIT</text>
+        <text x="16" y="46" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">Spawn: 1.79s | Err: -0.01s | Claim: 45.1ms</text>
+
+        <rect x="260" y="18" width="660" height="28" rx="4" fill="#0B0F14" stroke="#243447" stroke-width="1"/>
+        <rect x="520" y="18" width="160" height="28" fill="rgba(0,229,255,0.2)" stroke="#00E5FF" stroke-width="1"/>
+        <text x="268" y="37" font-size="12">💾</text>
+        <text x="598" y="37" font-size="12">🚀</text>
+      </g>
+
+      <!-- Swimlane 3 -->
+      <g transform="translate(24, 230)">
+        <rect x="0" y="0" width="948" height="68" rx="6" fill="#16202B" stroke="#243447" stroke-width="1"/>
+        <text x="16" y="24" fill="#FFFFFF" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700">build-46</text>
+        <rect x="80" y="12" width="60" height="16" rx="3" fill="rgba(255,179,0,0.15)"/>
+        <text x="110" y="23" fill="#FFB300" font-family="'JetBrains Mono', monospace" font-size="9" text-anchor="middle">HOLDOUT</text>
+        <text x="16" y="46" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">Spawn: 1.82s | Err: +0.02s | Control Arm</text>
+
+        <rect x="260" y="18" width="660" height="28" rx="4" fill="#0B0F14" stroke="#243447" stroke-width="1"/>
+        <rect x="520" y="18" width="160" height="28" fill="rgba(255,179,0,0.15)" stroke="#FFB300" stroke-width="1"/>
+        <text x="268" y="37" font-size="12">💾</text>
+        <text x="604" y="37" font-size="12">🚀</text>
+      </g>
+    </g>
+    
+      </g>
+    </svg>

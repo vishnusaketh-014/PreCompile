@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PreCompile // Mission Control</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Left Navigation Sidebar -->
+    <aside class="app-sidebar">
+      <div class="brand-section">
+        <div class="brand-title">
+          <span>⚡ PreCompile</span>
+          <span class="brand-badge">v1.5</span>
+        </div>
+        <div class="brand-sub">Anticipatory Priority Reservation</div>
+      </div>
+
+      <div class="source-pill-container">
+        <div id="source-pill" class="source-pill live">
+          <span class="dot"></span>
+          <span id="source-text" class="tabular-num">LIVE: SQLite</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-view="compare">
+          <span class="nav-icon">⚖</span>
+          <span>Compare (A/B)</span>
+        </a>
+        <a class="nav-item" data-view="overview">
+          <span class="nav-icon">⬡</span>
+          <span>Live Overview</span>
+        </a>
+        <a class="nav-item" data-view="timeline">
+          <span class="nav-icon">⏱</span>
+          <span>Prediction Timeline</span>
+        </a>
+        <a class="nav-item" data-view="distributions">
+          <span class="nav-icon">📊</span>
+          <span>Reserved vs Holdout</span>
+        </a>
+        <a class="nav-item" data-view="benefit">
+          <span class="nav-icon">📈</span>
+          <span>Benefit Estimator</span>
+        </a>
+        <a class="nav-item" data-view="safety">
+          <span class="nav-icon">🛡</span>
+          <span>Safety Governor</span>
+        </a>
+        <a class="nav-item" data-view="experiments">
+          <span class="nav-icon">🧪</span>
+          <span>Experiments</span>
+        </a>
+        <a class="nav-item" data-view="decisions">
+          <span class="nav-icon">📜</span>
+          <span>Decision Log</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="btn-toggle-pres" class="btn-pres-mode" title="Toggle Projector Presentation Mode (Shortcut: P)">
+          <span>📺 Presentation Mode</span>
+          <span class="badge-val">[P]</span>
+        </button>
+        <div class="mono" style="font-size: 10px; opacity: 0.7; text-align: center;">
+          Read-Only • 1.0 Hz Polling
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Viewport -->
+    <main class="app-main">
+      <header class="top-bar">
+        <div>
+          <h1 id="topbar-title" class="view-heading">Live Overview</h1>
+          <div id="topbar-sub" class="view-sub">Real-time scheduling telemetry & state machine</div>
+        </div>
+
+        <div class="top-actions">
+          <!-- Replay Mode Controls -->
+          <div class="replay-controls-group">
+            <button id="btn-toggle-replay" class="replay-btn" title="Toggle between Live Telemetry and Benchmark Replay Mode">
+              <span id="replay-btn-icon">▶</span>
+              <span id="replay-btn-label">Replay Mode</span>
+            </button>
+
+            <div id="replay-playback-bar" class="replay-playback-bar" style="display: none;">
+              <select id="replay-dataset-select" class="replay-select" title="Select recorded benchmark suite">
+                <option value="results_tier1">Tier 1: Scenario A (Idle / Mod / High)</option>
+                <option value="results_tier2">Tier 2: Scenario B (Heavy C/C++)</option>
+                <option value="results_tier3">Tier 3: Ablations (A2-A5)</option>
+              </select>
+
+              <button id="btn-replay-prev" class="replay-ctrl-btn" title="Previous Trial">⏮</button>
+              <button id="btn-replay-play" class="replay-ctrl-btn" title="Play / Pause">▶</button>
+              <button id="btn-replay-next" class="replay-ctrl-btn" title="Next Trial">⏭</button>
+
+              <select id="replay-speed-select" class="replay-select speed" title="Playback Speed">
+                <option value="0.5">0.5x</option>
+                <option value="1.0" selected>1.0x</option>
+                <option value="2.0">2.0x</option>
+                <option value="5.0">5.0x</option>
+                <option value="10.0">10.0x</option>
+              </select>
+
+              <span id="replay-step-counter" class="mono" style="font-size: 11px; color: var(--text-muted);">
+                Trial 0 / 0
+              </span>
+            </div>
+          </div>
+
+          <span id="connection-status" class="source-pill live" style="font-size: 11px;">
+            <span class="dot"></span>
+            <span>SSE Live (1 Hz)</span>
+          </span>
+        </div>
+      </header>
+
+      <div class="content-body">
+        <!-- ===================================================================
+             HOME SCREEN: Compare (WITH vs WITHOUT PreCompile) - HERO FEATURE
+             =================================================================== -->
+        <section id="view-compare" class="view-section active">
+          <!-- Comparison Toolbar / Selectors -->
+          <div class="compare-toolbar-card">
+            <div class="compare-selectors-row">
+              <div class="selector-field">
+                <label for="compare-scenario-select">Workload Scenario</label>
+                <select id="compare-scenario-select" class="theme-select">
+                  <option value="A" selected>Scenario A: Regular Delays (~2.0s, Deterministic)</option>
+                  <option value="B">Scenario B: Irregular Delays (~12.9s, Bursty Workflow)</option>
+                  <option value="C">Scenario C: Save-Only / Concurrent (Abstain Audit)</option>
+                </select>
+              </div>
+
+              <div class="selector-field">
+                <label for="compare-load-select">Contention Load Level</label>
+                <select id="compare-load-select" class="theme-select">
+                  <option value="high" selected>High Contention (CPU PSI 60-80%)</option>
+                  <option value="moderate">Moderate Contention (CPU PSI 25-40%)</option>
+                  <option value="idle">Idle / Zero Contention (CPU PSI 0-5%)</option>
+                </select>
+              </div>
+
+              <div class="selector-field">
+                <label for="compare-source-select">Data Source Mode</label>
+                <select id="compare-source-select" class="theme-select">
+                  <option value="recorded" selected>Recorded Benchmark Data</option>
+                  <option value="live">Live A/B Demo</option>
+                </select>
+              </div>
+
+              <div class="selector-field toggle-field">
+                <label class="checkbox-label" title="Show C1 Reactive post-spawn boost as third column">
+                  <input type="checkbox" id="compare-show-reactive-toggle" checked>
+                  <span>Show Reactive Only (C1)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Live A/B Demo Sub-Bar -->
+            <div id="compare-live-demo-bar" class="compare-demo-bar" style="display: none;">
+              <div class="demo-controls-row">
+                <button id="btn-run-demo" class="btn-primary-action">
+                  <span>⚡ Run Live A/B Demo</span>
+                </button>
+                <button id="btn-stop-demo" class="btn-secondary-action" disabled>
+                  <span>⏹ Stop Demo</span>
+                </button>
+
+                <div class="demo-pairs-field">
+                  <label for="demo-pairs-select">Repeats:</label>
+                  <select id="demo-pairs-select" class="theme-select small">
+                    <option value="3" selected>3 Pairs (AB/BA balanced)</option>
+                    <option value="5">5 Pairs</option>
+                    <option value="10">10 Pairs</option>
+                  </select>
+                </div>
+
+                <div id="demo-status-indicator" class="demo-status-pill idle">
+                  <span class="dot"></span>
+                  <span id="demo-status-text">Demo Idle</span>
+                </div>
+              </div>
+
+              <!-- Fallback Banner if Root/Daemon unavailable -->
+              <div id="demo-fallback-banner" class="demo-fallback-banner" style="display: none;">
+                <span class="banner-icon">ℹ️</span>
+                <span id="demo-fallback-text">Root / Linux cgroup v2 daemon unavailable on current host — Running in recorded empirical paired playback mode.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hero Speedup Badge & Honest Statistical Indicator -->
+          <div class="hero-speedup-banner-card">
+            <div class="speedup-badge-container">
+              <div id="compare-speedup-badge" class="speedup-hero-badge win">
+                +75.6% FASTER
+              </div>
+              <div class="speedup-stats-col">
+                <div class="speedup-ci-text mono" id="compare-speedup-ci">
+                  95% Bootstrap CI: [+73.7%, +76.7%]
+                </div>
+                <div class="speedup-p-text mono" id="compare-speedup-p">
+                  Mann-Whitney U: p &lt; 0.0001 (Highly Significant)
+                </div>
+              </div>
+            </div>
+
+            <div class="speedup-playback-col">
+              <button id="btn-play-compare-animation" class="btn-play-sim" title="Replay animated build execution comparison">
+                <span>▶ Replay Build Run</span>
+              </button>
+              <div class="sim-clock-display mono">
+                Elapsed: <span id="sim-clock-val">0.00s</span>
+              </div>
+            </div>
+
+            <div class="honest-mechanism-box">
+              <div class="honest-title">
+                <span>⚖️ HONEST MECHANISM AUDIT</span>
+                <span id="compare-scenario-badge" class="badge-source">Scenario A • High Load • N=50/arm</span>
+              </div>
+              <div id="compare-honest-explanation" class="honest-desc">
+                Full predictive pre-allocation accelerated the build by 75.6% (p &lt; 10⁻¹⁴).
+                CPU contention was mitigated before the compiler spawned.
+              </div>
+            </div>
+          </div>
+
+          <!-- Symmetrical Side-by-Side Comparison Panels -->
+          <div class="compare-panels-grid has-reactive">
+            <!-- Left Panel: WITHOUT PreCompile -->
+            <div id="panel-without" class="compare-card without-arm">
+              <div class="compare-card-header">
+                <div>
+                  <div class="compare-arm-tag">BASELINE / HOLDOUT</div>
+                  <h2 class="compare-arm-title">WITHOUT PreCompile</h2>
+                  <div class="compare-arm-subtitle">C0 Baseline • Normal CFS Scheduling</div>
+                </div>
+                <span class="arm-status-pill without">Normal CFS</span>
+              </div>
+
+              <div class="big-metric-block">
+                <div class="big-metric-label">MEASURED BUILD DURATION</div>
+                <div class="big-metric-value tabular-num" id="without-build-time">8.38s</div>
+                <div class="big-metric-sub mono" id="without-build-sub">
+                  Median: 8.38s • 95% CI: [8.21s, 8.55s] • N=50
+                </div>
+              </div>
+
+              <!-- Animated Progress Bar -->
+              <div class="build-progress-section">
+                <div class="progress-labels-row">
+                  <span class="progress-title">Build Execution Progress</span>
+                  <span class="progress-elapsed mono" id="without-progress-elapsed">0.00s / 8.38s</span>
+                </div>
+                <div class="progress-track">
+                  <div id="without-progress-fill" class="progress-fill without" style="width: 0%;"></div>
+                </div>
+                <div class="progress-status-row mono" id="without-progress-status">
+                  Waiting to run...
+                </div>
+              </div>
+
+              <!-- Technical Telemetry Spec -->
+              <div class="arm-specs-grid">
+                <div class="spec-item">
+                  <div class="spec-label">CPU Share / Weight</div>
+                  <div class="spec-value mono" id="without-cpu-weight">100 (~12.5% share)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Claim Latency</div>
+                  <div class="spec-value mono" id="without-claim-latency">N/A (Standard spawn)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Contention Impact</div>
+                  <div class="spec-value mono" id="without-contention-impact">+359% contention delay</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Reservation State</div>
+                  <div class="spec-value mono">Unboosted (Holdout)</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Optional Middle Panel: Reactive Only (C1) -->
+            <div id="panel-reactive" class="compare-card reactive-arm">
+              <div class="compare-card-header">
+                <div>
+                  <div class="compare-arm-tag">POST-SPAWN BOOST</div>
+                  <h2 class="compare-arm-title">Reactive Only</h2>
+                  <div class="compare-arm-subtitle">C1 Reactive • Priority After Process Spawn</div>
+                </div>
+                <span class="arm-status-pill reactive">Reactive Boost</span>
+              </div>
+
+              <div class="big-metric-block">
+                <div class="big-metric-label">MEASURED BUILD DURATION</div>
+                <div class="big-metric-value tabular-num" id="reactive-build-time">1.99s</div>
+                <div class="big-metric-sub mono" id="reactive-build-sub">
+                  Median: 1.99s • 95% CI: [1.95s, 2.04s] • N=50
+                </div>
+              </div>
+
+              <!-- Animated Progress Bar -->
+              <div class="build-progress-section">
+                <div class="progress-labels-row">
+                  <span class="progress-title">Build Execution Progress</span>
+                  <span class="progress-elapsed mono" id="reactive-progress-elapsed">0.00s / 1.99s</span>
+                </div>
+                <div class="progress-track">
+                  <div id="reactive-progress-fill" class="progress-fill reactive" style="width: 0%;"></div>
+                </div>
+                <div class="progress-status-row mono" id="reactive-progress-status">
+                  Waiting to run...
+                </div>
+              </div>
+
+              <!-- Technical Telemetry Spec -->
+              <div class="arm-specs-grid">
+                <div class="spec-item">
+                  <div class="spec-label">CPU Share / Weight</div>
+                  <div class="spec-value mono" id="reactive-cpu-weight">500 (~62.5% share)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Claim Latency</div>
+                  <div class="spec-value mono" id="reactive-claim-latency">+47.2 ms (/proc lag)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">vs C2 Predictive</div>
+                  <div class="spec-value mono" id="reactive-vs-c2">p = 0.2582 (No diff)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Detection Mechanism</div>
+                  <div class="spec-value mono">Periodic /proc scan</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Panel: WITH PreCompile -->
+            <div id="panel-with" class="compare-card with-arm">
+              <div class="compare-card-header">
+                <div>
+                  <div class="compare-arm-tag">PREDICTIVE ALLOCATION</div>
+                  <h2 class="compare-arm-title">WITH PreCompile</h2>
+                  <div class="compare-arm-subtitle">C2 Full Predictive • Priority Before Spawn</div>
+                </div>
+                <span class="arm-status-pill with">Boosted CFS</span>
+              </div>
+
+              <div class="big-metric-block">
+                <div class="big-metric-label">MEASURED BUILD DURATION</div>
+                <div class="big-metric-value tabular-num" id="with-build-time">2.04s</div>
+                <div class="big-metric-sub mono" id="with-build-sub">
+                  Median: 2.04s • 95% CI: [1.98s, 2.11s] • N=50
+                </div>
+              </div>
+
+              <!-- Animated Progress Bar -->
+              <div class="build-progress-section">
+                <div class="progress-labels-row">
+                  <span class="progress-title">Build Execution Progress</span>
+                  <span class="progress-elapsed mono" id="with-progress-elapsed">0.00s / 2.04s</span>
+                </div>
+                <div class="progress-track">
+                  <div id="with-progress-fill" class="progress-fill with" style="width: 0%;"></div>
+                </div>
+                <div class="progress-status-row mono" id="with-progress-status">
+                  Waiting to run...
+                </div>
+              </div>
+
+              <!-- Technical Telemetry Spec -->
+              <div class="arm-specs-grid">
+                <div class="spec-item">
+                  <div class="spec-label">CPU Share / Weight</div>
+                  <div class="spec-value mono" id="with-cpu-weight">500 (~62.5% share)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Claim Latency</div>
+                  <div class="spec-value mono" id="with-claim-latency">Preemptive (~45.6ms lead)</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Speedup vs Baseline</div>
+                  <div class="spec-value mono" id="with-speedup-stat">+75.6% accelerated</div>
+                </div>
+                <div class="spec-item">
+                  <div class="spec-label">Actuation Lead Time</div>
+                  <div class="spec-value mono" id="with-lead-time">Applied BEFORE spawn</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Timeline & Overlaid CPU-Share Chart -->
+          <div class="compare-timeline-card">
+            <div class="card-header-row">
+              <div>
+                <h3 class="card-heading">Overlaid CPU Share Timeline & Event Sequence</h3>
+                <div class="card-subheading">Save Event • Preemptive Reservation • Process Spawn • Completion comparison on identical time axes</div>
+              </div>
+              <div class="chart-legend-inline">
+                <span class="legend-pill without"><span class="legend-swatch"></span> WITHOUT PreCompile</span>
+                <span class="legend-pill reactive" id="legend-reactive-pill"><span class="legend-swatch"></span> Reactive Only (C1)</span>
+                <span class="legend-pill with"><span class="legend-swatch"></span> WITH PreCompile</span>
+              </div>
+            </div>
+
+            <div id="chart-compare-overlay" class="chart-container" style="min-height: 290px;">
+              <!-- SVG Overlaid Chart rendered by PreCompileCharts.renderCompareOverlayChart -->
+            </div>
+          </div>
+
+          <!-- Live A/B Trial Stream (Visible when in Live A/B mode) -->
+          <div id="compare-live-table-card" class="compare-live-table-card" style="display: none;">
+            <div class="card-header-row">
+              <div>
+                <h3 class="card-heading">Live A/B Paired Trial Stream</h3>
+                <div class="card-subheading">Alternating order (WITHOUT then WITH / WITH then WITHOUT) under pinned contention</div>
+              </div>
+              <div class="mono" id="demo-summary-stat" style="font-size: 12px; color: var(--accent-cyan);">
+                Pairs: 0 | Running Speedup: --
+              </div>
+            </div>
+
+            <div class="table-scroll-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Pair #</th>
+                    <th>Execution Order</th>
+                    <th>WITHOUT Build (s)</th>
+                    <th>WITH Build (s)</th>
+                    <th>Delta / Speedup</th>
+                    <th>Running Median Speedup</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody id="demo-runs-tbody">
+                  <tr>
+                    <td colspan="7" class="mono empty-table-cell">Click "Run Live A/B Demo" to execute alternating pairs.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 1: Live Overview (Hero Screen)
+             =================================================================== -->
+        <section id="view-overview" class="view-section">
+          <!-- Large State Machine Strip -->
+          <div class="state-strip-card">
+            <div class="state-strip-header">
+              <span class="state-strip-title">Anticipatory Lifecycle State Machine</span>
+              <span id="current-state-badge" class="state-active-badge">STATE: IDLE</span>
+            </div>
+
+            <div class="state-strip-nodes">
+              <div class="state-node" data-state="Idle">
+                <div class="state-circle">01</div>
+                <div class="state-name">Idle</div>
+              </div>
+              <div class="state-node" data-state="Observing">
+                <div class="state-circle">02</div>
+                <div class="state-name">Observing</div>
+              </div>
+              <div class="state-node" data-state="Predicted">
+                <div class="state-circle">03</div>
+                <div class="state-name">Predicted</div>
+              </div>
+              <div class="state-node" data-state="Armed">
+                <div class="state-circle">04</div>
+                <div class="state-name">Armed</div>
+              </div>
+              <div class="state-node" data-state="Reserved">
+                <div class="state-circle">05</div>
+                <div class="state-name">Reserved</div>
+              </div>
+              <div class="state-node" data-state="Released">
+                <div class="state-circle">06</div>
+                <div class="state-name">Released</div>
+              </div>
+            </div>
+
+            <div id="state-status-msg" class="state-status-msg">
+              Awaiting save event detection or registered project activity.
+            </div>
+          </div>
+
+          <!-- Big Metric Tiles -->
+          <div class="hero-tiles-grid">
+            <!-- Tile 1: Prediction Confidence -->
+            <div class="hero-tile">
+              <div class="tile-label-row">
+                <span class="tile-label">Prediction Confidence</span>
+                <span id="tile-conf-gate" class="tile-status-tag pass">GATE: HOLD</span>
+              </div>
+              <div>
+                <div id="tile-conf-val" class="tile-main-metric tabular-num">N/A</div>
+                <div id="tile-conf-sub" class="tile-subtext">no data yet</div>
+              </div>
+              <div id="tile-conf-detail" class="tile-detail">Model requires ≥5 delay samples</div>
+            </div>
+
+            <!-- Tile 2: Save-to-Build Delay -->
+            <div class="hero-tile">
+              <div class="tile-label-row">
+                <span class="tile-label">Save-To-Build Delay</span>
+                <span class="tile-status-tag">ESTIMATED</span>
+              </div>
+              <div>
+                <div id="tile-delay-val" class="tile-main-metric tabular-num">N/A</div>
+                <div id="tile-delay-sub" class="tile-subtext">no data yet</div>
+              </div>
+              <div id="tile-delay-detail" class="tile-detail">Target window: [0.00s, 0.00s]</div>
+            </div>
+
+            <!-- Tile 3: Active Reservation Weight -->
+            <div class="hero-tile">
+              <div class="tile-label-row">
+                <span class="tile-label">Cgroup Weight</span>
+                <span id="tile-weight-tag" class="tile-status-tag">CFS SHARE</span>
+              </div>
+              <div>
+                <div id="tile-weight-val" class="tile-main-metric tabular-num">100</div>
+                <div id="tile-weight-sub" class="tile-subtext">Default user priority</div>
+              </div>
+              <div id="tile-weight-detail" class="tile-detail">No active reservation cgroup</div>
+            </div>
+
+            <!-- Tile 4: System CPU PSI -->
+            <div class="hero-tile">
+              <div class="tile-label-row">
+                <span class="tile-label">System CPU PSI</span>
+                <span id="tile-psi-tag" class="tile-status-tag">PRESSURE</span>
+              </div>
+              <div>
+                <div id="tile-psi-val" class="tile-main-metric tabular-num">0.0%</div>
+                <div id="tile-psi-sub" class="tile-subtext">Idle load</div>
+              </div>
+              <div id="tile-psi-detail" class="tile-detail">CPU PSI (/proc/pressure/cpu)</div>
+            </div>
+
+            <!-- Tile 5: Safety Governor -->
+            <div class="hero-tile">
+              <div class="tile-label-row">
+                <span class="tile-label">Safety & Governor</span>
+                <span id="tile-safety-tag" class="tile-status-tag pass">ACTIVE</span>
+              </div>
+              <div>
+                <div id="tile-safety-val" class="tile-main-metric tabular-num" style="color: #00E676;">NORMAL</div>
+                <div id="tile-safety-sub" class="tile-subtext">Actuation armed</div>
+              </div>
+              <div id="tile-safety-detail" class="tile-detail">Kill-switch: clear | Circuit-breaker: clear</div>
+            </div>
+          </div>
+
+          <!-- Transition Log -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Recent Lifecycle Transitions</div>
+                <div class="panel-subtitle">Audited state transitions across reservations and process spawns</div>
+              </div>
+            </div>
+            <div class="transition-table-wrap">
+              <table class="transition-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Transition</th>
+                    <th>Trigger / Event</th>
+                    <th>Target Cgroup</th>
+                    <th>PID</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="transition-table-body">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                      no transition records recorded yet
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 2: Prediction Timeline
+             =================================================================== -->
+        <section id="view-timeline" class="view-section">
+          <!-- Summary Header -->
+          <div class="stat-summary-strip">
+            <div class="summary-card">
+              <span class="summary-card-title">Mean Save-to-Spawn Latency</span>
+              <div id="timeline-mean-delay" class="summary-card-val cyan tabular-num">1.80s</div>
+              <div class="summary-card-sub">Observed center μ</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Prediction Window Width</span>
+              <div id="timeline-window-width" class="summary-card-val tabular-num">0.80s</div>
+              <div class="summary-card-sub">Bounds: [1.40s, 2.20s]</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Mean Prediction Error</span>
+              <div id="timeline-mean-error" class="summary-card-val tabular-num">&plusmn;0.04s</div>
+              <div class="summary-card-sub">Delta vs actual process spawn</div>
+            </div>
+            <div class="summary-card highlight">
+              <span class="summary-card-title">Rolling Hit Rate</span>
+              <div id="timeline-hit-rate" class="summary-card-val cyan tabular-num">100.0%</div>
+              <div class="summary-card-sub">43/43 predictions scored</div>
+            </div>
+          </div>
+
+          <!-- Swimlanes Card -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Build Cycle Swimlanes</div>
+                <div class="panel-subtitle">Visual alignment of file save (t=0), predicted window [LO, HI], actual process spawn, and atomic claim time</div>
+              </div>
+              <div class="timeline-legend">
+                <span>💾 File Save</span>
+                <span class="legend-box"></span>
+                <span>Predicted Window</span>
+                <span>🚀 Spawn</span>
+              </div>
+            </div>
+            <div id="timeline-swimlanes-container">
+              <!-- Rendered via PreCompileCharts.renderPredictionTimeline -->
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 3: Reserved vs Holdout
+             =================================================================== -->
+        <section id="view-distributions" class="view-section">
+          <!-- Filter Controls -->
+          <div class="filter-bar">
+            <div class="filter-group">
+              <span class="filter-label">Scenario Filter:</span>
+              <div class="pill-group" id="filter-scenario">
+                <button class="filter-pill active" data-val="All">All Scenarios</button>
+                <button class="filter-pill" data-val="A">Scenario A (Light)</button>
+                <button class="filter-pill" data-val="B">Scenario B (Heavy C/C++)</button>
+                <button class="filter-pill" data-val="C">Scenario C (Save-Only)</button>
+              </div>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">Contention Load:</span>
+              <div class="pill-group" id="filter-load">
+                <button class="filter-pill active" data-val="All">All Loads</button>
+                <button class="filter-pill" data-val="idle">Idle</button>
+                <button class="filter-pill" data-val="moderate">Moderate (2 Hogs)</button>
+                <button class="filter-pill" data-val="high">High (4 Hogs)</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Statistical Summary Highlight Bar -->
+          <div class="stat-summary-strip">
+            <div class="summary-card highlight">
+              <span class="summary-card-title">Empirical Speedup (Median)</span>
+              <div id="stat-speedup-val" class="summary-card-val cyan tabular-num">+56.8%</div>
+              <div id="stat-speedup-ci" class="summary-card-sub">95% CI: [+48.2%, +64.1%]</div>
+            </div>
+
+            <div class="summary-card">
+              <span class="summary-card-title">Reserved Builds (C2-Full)</span>
+              <div id="stat-res-med" class="summary-card-val tabular-num">1.98s</div>
+              <div id="stat-res-count" class="summary-card-sub">Median • n=47</div>
+            </div>
+
+            <div class="summary-card">
+              <span class="summary-card-title">Holdout Builds (Control)</span>
+              <div id="stat-hold-med" class="summary-card-val amber tabular-num">4.58s</div>
+              <div id="stat-hold-count" class="summary-card-sub">Median • n=50</div>
+            </div>
+
+            <div class="summary-card">
+              <span class="summary-card-title">Mann-Whitney U Significance</span>
+              <div id="stat-pval" class="summary-card-val tabular-num" style="font-size: 20px; line-height: 1.4;">p &lt; 0.0001</div>
+              <div id="stat-signif-sub" class="summary-card-sub" style="color: var(--accent-cyan);">Statistically Significant (p &lt; 0.05)</div>
+            </div>
+          </div>
+
+          <!-- Main Distribution Chart (Box + Points) -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Build-Time Distribution (Reserved vs Holdout)</div>
+                <div class="panel-subtitle">Side-by-side box & whisker plots with individual trial points</div>
+              </div>
+              <div class="mono" style="font-size: 11px; color: var(--text-muted);" id="dist-source-label">
+                Source: benchmarks/results_tier1
+              </div>
+            </div>
+            <div id="box-points-container" class="dist-chart-container">
+              <!-- SVG chart rendered via charts.js -->
+            </div>
+          </div>
+
+          <!-- Contention Bins Comparison -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Performance Across Contention Bins</div>
+                <div class="panel-subtitle">Comparing build times in Idle, Moderate, and High CPU contention environments</div>
+              </div>
+            </div>
+            <div id="contention-bins-container">
+              <!-- Rendered via charts.js -->
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 4: Benefit Estimator
+             =================================================================== -->
+        <section id="view-benefit" class="view-section">
+          <!-- State Summary Strip -->
+          <div class="stat-summary-strip">
+            <div class="summary-card highlight">
+              <span class="summary-card-title">Active Reservation Weight</span>
+              <div id="benefit-weight-val" class="summary-card-val cyan tabular-num">500</div>
+              <div id="benefit-weight-status" class="summary-card-sub">Adaptive Controller: ACTIVE</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Measured Speedup</span>
+              <div id="benefit-speedup-val" class="summary-card-val tabular-num">+56.8%</div>
+              <div id="benefit-speedup-pval" class="summary-card-sub">p = 0.0001 (Mann-Whitney U)</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Sample Arm Balance</span>
+              <div id="benefit-samples-val" class="summary-card-val tabular-num">47 / 50</div>
+              <div class="summary-card-sub">Reserved vs Holdouts evaluated</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Controller Arming Action</span>
+              <div id="benefit-action-val" class="summary-card-val cyan tabular-num" style="font-size: 20px; line-height: 1.4;">HOLD (CAP 500)</div>
+              <div class="summary-card-sub">Arming status: ENABLED</div>
+            </div>
+          </div>
+
+          <!-- Dynamic Weight Stepping Trajectory Chart -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Adaptive Priority Weight Trajectory</div>
+                <div class="panel-subtitle">Closed-loop feedback controller stepping CFS weight over time based on empirical holdout benefit</div>
+              </div>
+            </div>
+            <div id="benefit-weight-chart-container" style="min-height: 220px;">
+              <!-- Rendered via PreCompileCharts.renderBenefitWeightChart -->
+            </div>
+          </div>
+
+          <!-- Per-Bin Effect Sizes -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Contention Bin Effect Sizes & 95% Confidence Intervals</div>
+                <div class="panel-subtitle">Independent benefit evaluation per CPU pressure tranche</div>
+              </div>
+            </div>
+            <div id="benefit-bins-container">
+              <!-- Rendered via PreCompileCharts.renderContentionBins -->
+            </div>
+          </div>
+
+          <!-- Historical Evaluation Table -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Evaluation Audit Trail</div>
+                <div class="panel-subtitle">History of controller evaluations and parameter adaptations</div>
+              </div>
+            </div>
+            <div class="transition-table-wrap">
+              <table class="transition-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Reserved / Holdout</th>
+                    <th>Measured Effect</th>
+                    <th>95% Confidence Interval</th>
+                    <th>p-value</th>
+                    <th>Controller Action</th>
+                    <th>Weight After</th>
+                  </tr>
+                </thead>
+                <tbody id="benefit-evals-tbody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 5: Safety Governor
+             =================================================================== -->
+        <section id="view-safety" class="view-section">
+          <!-- Hero Status Strip -->
+          <div class="stat-summary-strip">
+            <div class="summary-card">
+              <span class="summary-card-title">Kill Switch Status</span>
+              <div id="safety-kill-val" class="summary-card-val tabular-num" style="color: #00E676;">DISENGAGED</div>
+              <div id="safety-kill-sub" class="summary-card-sub">Flag: /tmp/precompile.pause</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Circuit Breaker</span>
+              <div id="safety-cb-val" class="summary-card-val tabular-num" style="color: #00E676;">CLEAR</div>
+              <div class="summary-card-sub">0 consecutive misses (threshold: 3)</div>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card-title">Descendant Process Leaks</span>
+              <div id="safety-leak-val" class="summary-card-val cyan tabular-num">0 LEAKS</div>
+              <div class="summary-card-sub">Fixpoint sweeper window: 0.5s</div>
+            </div>
+            <div class="summary-card highlight">
+              <span class="summary-card-title">Daemon CPU Overhead</span>
+              <div id="safety-overhead-val" class="summary-card-val tabular-num">3.45%</div>
+              <div id="safety-overhead-sub" class="summary-card-sub">Avg scan latency: 0.26ms</div>
+            </div>
+          </div>
+
+          <!-- Boost Budget Meter Card -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Rolling Elevated Boost Budget Gauge</div>
+                <div class="panel-subtitle">Anti-starvation quota enforcing maximum elevated CFS allocation in any 1-hour window</div>
+              </div>
+            </div>
+            <div id="safety-budget-container">
+              <!-- Rendered via PreCompileCharts.renderSafetyBudgetGauge -->
+            </div>
+          </div>
+
+          <!-- Safety Invariants Audit Checklist -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Kernel & Scheduler Safety Invariants</div>
+                <div class="panel-subtitle">System invariants verified at runtime</div>
+              </div>
+            </div>
+            <div class="safety-invariants-grid">
+              <div class="invariant-item">
+                <span class="inv-check">✔</span>
+                <div>
+                  <div class="inv-title">Cgroup v2 Hierarchical Sibling Placement</div>
+                  <div class="inv-desc">Reservation groups placed under root (<code class="mono">/sys/fs/cgroup/precompile-res-X</code>) competing directly with <code class="mono">init.scope</code>.</div>
+                </div>
+              </div>
+              <div class="invariant-item">
+                <span class="inv-check">✔</span>
+                <div>
+                  <div class="inv-title">Outlier Clipping Floor (σ_floor = 0.1s)</div>
+                  <div class="inv-desc">Maintains bounded plasticity, preventing clipping interval collapse if developer delay variance approaches zero.</div>
+                </div>
+              </div>
+              <div class="invariant-item">
+                <span class="inv-check">✔</span>
+                <div>
+                  <div class="inv-title">Weight Ceiling Constraint (W ≤ 1000)</div>
+                  <div class="inv-desc">CFS weight clamped to maximum ceiling of 1000 (default 500), preserving proportional CPU sharing without starvation.</div>
+                </div>
+              </div>
+              <div class="invariant-item">
+                <span class="inv-check">✔</span>
+                <div>
+                  <div class="inv-title">Graceful Degradation Without Privileges</div>
+                  <div class="inv-desc">Safely degrades to passive observation-only mode if executed without root or cgroup v2 write permissions.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 6: Experiments (C0-C3 Matrices, Criteria, Ablations)
+             =================================================================== -->
+        <section id="view-experiments" class="view-section">
+          <!-- Honest Evaluation Disclosure Banner -->
+          <div class="disclosure-card">
+            <div class="disclosure-header">
+              <span class="disclosure-icon">⚖</span>
+              <div>
+                <div class="disclosure-title">Pre-Registered Experimental Evaluation (RESULTS.md Provenance)</div>
+                <div class="disclosure-sub">Strict scientific transparency: all conditions, criteria failures, and harness audits reported unedited.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pre-Registered Success Criteria (S1 - S7) -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Pre-Registered Success Criteria (S1 - S7)</div>
+                <div class="panel-subtitle">Holm-Bonferroni corrected hypothesis outcomes across evaluation tiers</div>
+              </div>
+            </div>
+            <div class="transition-table-wrap">
+              <table class="transition-table">
+                <thead>
+                  <tr>
+                    <th>Criterion</th>
+                    <th>Pre-Registered Target</th>
+                    <th>Observed Value</th>
+                    <th>Status</th>
+                    <th>Audit & Transparency Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="experiments-criteria-tbody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Table 2a: Condition Performance Matrix -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Condition Performance Matrix (Table 2a)</div>
+                <div class="panel-subtitle">Intention to Treat (ITT), Reserved-Only, and Holdout-Only build times across tiers</div>
+              </div>
+            </div>
+            <div class="transition-table-wrap">
+              <table class="transition-table">
+                <thead>
+                  <tr>
+                    <th>Tier</th>
+                    <th>Scenario</th>
+                    <th>Contention Load</th>
+                    <th>Condition</th>
+                    <th>N</th>
+                    <th>Median ITT</th>
+                    <th>Mean ITT</th>
+                    <th>P95 ITT</th>
+                    <th>Reserved Med</th>
+                    <th>Holdout Med</th>
+                  </tr>
+                </thead>
+                <tbody id="experiments-matrix-tbody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Ablation Studies -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Mechanism Ablation Studies (Tier 3)</div>
+                <div class="panel-subtitle">Evaluating individual gate and architectural components against baseline C2-Full</div>
+              </div>
+            </div>
+            <div class="transition-table-wrap">
+              <table class="transition-table">
+                <thead>
+                  <tr>
+                    <th>Ablation</th>
+                    <th>Description</th>
+                    <th>Empirical Verdict & Mechanism Analysis</th>
+                  </tr>
+                </thead>
+                <tbody id="experiments-ablations-tbody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 7: Decision Log
+             =================================================================== -->
+        <section id="view-decisions" class="view-section">
+          <!-- Category Filters -->
+          <div class="filter-bar">
+            <div class="filter-group">
+              <span class="filter-label">Filter Decisions:</span>
+              <div class="pill-group" id="filter-decision-cat">
+                <button class="filter-pill active" data-val="All">All Decisions</button>
+                <button class="filter-pill" data-val="armed">Armed Only</button>
+                <button class="filter-pill" data-val="holdout">Holdouts Only</button>
+                <button class="filter-pill" data-val="abstain">Abstained</button>
+              </div>
+            </div>
+            <div class="mono" style="font-size: 11px; color: var(--text-muted);" id="decisions-count-label">
+              Showing 0 decisions
+            </div>
+          </div>
+
+          <!-- Decision Stream Table -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Daemon Arming & Gate Decision Stream</div>
+                <div class="panel-subtitle">Audited decision log feeding confidence gate, contention gate, and cost/benefit selector</div>
+              </div>
+            </div>
+            <div class="transition-table-wrap">
+              <table class="transition-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Timestamp</th>
+                    <th>Project</th>
+                    <th>File Class</th>
+                    <th>Decision</th>
+                    <th>Contention PSI</th>
+                    <th>Estimated Benefit</th>
+                    <th>Estimated Cost</th>
+                    <th>Outcome</th>
+                  </tr>
+                </thead>
+                <tbody id="decisions-tbody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/charts.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

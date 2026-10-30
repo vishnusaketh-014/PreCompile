@@ -1,0 +1,66 @@
+<svg width="1366" height="768" viewBox="0 0 1366 768" xmlns="http://www.w3.org/2000/svg">
+      <!-- Ground -->
+      <rect x="0" y="0" width="1366" height="768" fill="#050810"/>
+
+      <!-- Floating Exit Button -->
+      <g transform="translate(1126, 24)">
+        <rect x="0" y="0" width="216" height="36" rx="6" fill="#16202B" stroke="#9461FF" stroke-width="1.5"/>
+        <text x="108" y="22" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" text-anchor="middle">✕ Exit Presentation [P / Esc]</text>
+      </g>
+
+      <!-- Large Header -->
+      <text x="60" y="70" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="34" font-weight="800">WITH vs WITHOUT PreCompile</text>
+      <text x="60" y="98" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="14">Direct empirical comparison of anticipatory priority reservation vs. normal scheduling</text>
+
+      <!-- Giant Central Hero Badge -->
+      <g transform="translate(403, 130)">
+        <rect x="0" y="0" width="560" height="120" rx="20" fill="rgba(124,58,237,0.12)" stroke="#9461FF" stroke-width="2"/>
+        <text x="280" y="65" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="64" font-weight="900" text-anchor="middle">+75.6% Speedup</text>
+        <text x="280" y="92" fill="#F1F5F9" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="600" text-anchor="middle">95% Bootstrap CI: [73.7%, 76.7%] • Mann-Whitney U: p &lt; 0.0001 (Highly Significant)</text>
+      </g>
+
+      <!-- Two Large Side-by-Side Symmetrical Panels -->
+      <g transform="translate(60, 280)">
+        <!-- Left Panel: WITHOUT PreCompile -->
+        <g transform="translate(0, 0)">
+          <rect x="0" y="0" width="590" height="420" rx="16" fill="#0D1117" stroke="#4A6FA5" stroke-width="2.5"/>
+          <text x="32" y="44" fill="#4A6FA5" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700">BASELINE / HOLDOUT (C0)</text>
+          <text x="32" y="80" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="24" font-weight="800">WITHOUT PreCompile</text>
+          <text x="32" y="104" fill="#64748B" font-family="'JetBrains Mono', monospace" font-size="13">Normal CFS Scheduling • CFS 100 (~12.5% share)</text>
+
+          <!-- Extra Large Number -->
+          <text x="32" y="190" fill="#4A6FA5" font-family="'JetBrains Mono', monospace" font-size="84" font-weight="900">8.38s</text>
+          <text x="32" y="224" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="15">Median: 8.38s • 95% CI: [8.03s, 9.47s] • N=50</text>
+
+          <!-- Large Progress Bar -->
+          <rect x="32" y="260" width="526" height="16" rx="8" fill="#16202B"/>
+          <rect x="32" y="260" width="130" height="16" rx="8" fill="#4A6FA5"/>
+          <text x="32" y="302" fill="#4A6FA5" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700">Building under heavy contention...</text>
+
+          <line x1="32" y1="325" x2="558" y2="325" stroke="#1E2D40" stroke-width="1"/>
+          <text x="32" y="355" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="14">CPU SHARE: <tspan fill="#F1F5F9" font-family="'JetBrains Mono', monospace" font-weight="700">CFS 100 (~12.5%)</tspan></text>
+          <text x="32" y="385" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="14">CONTENTION IMPACT: <tspan fill="#EF4444" font-family="'JetBrains Mono', monospace" font-weight="700">+359% contention delay</tspan></text>
+        </g>
+
+        <!-- Right Panel: WITH PreCompile -->
+        <g transform="translate(656, 0)">
+          <rect x="0" y="0" width="590" height="420" rx="16" fill="#0D1117" stroke="#9461FF" stroke-width="3"/>
+          <text x="32" y="44" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700">PREDICTIVE ALLOCATION (C2)</text>
+          <text x="32" y="80" fill="#FFFFFF" font-family="'Space Grotesk', sans-serif" font-size="24" font-weight="800">WITH PreCompile</text>
+          <text x="32" y="104" fill="#64748B" font-family="'JetBrains Mono', monospace" font-size="13">Anticipatory CFS Reservation • CFS 500 (~62.5% share)</text>
+
+          <!-- Extra Large Number -->
+          <text x="32" y="190" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="84" font-weight="900">2.04s</text>
+          <text x="32" y="224" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="15">Median: 2.04s • 95% CI: [1.74s, 8.54s] • N=50</text>
+
+          <!-- Large Progress Bar -->
+          <rect x="32" y="260" width="526" height="16" rx="8" fill="#16202B"/>
+          <rect x="32" y="260" width="526" height="16" rx="8" fill="#9461FF"/>
+          <text x="32" y="302" fill="#9461FF" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700">⚡ COMPLETED in 2.04s (Finished 6.34s earlier!)</text>
+
+          <line x1="32" y1="325" x2="558" y2="325" stroke="#1E2D40" stroke-width="1"/>
+          <text x="32" y="355" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="14">CPU SHARE: <tspan fill="#9461FF" font-family="'JetBrains Mono', monospace" font-weight="700">CFS 500 (~62.5%)</tspan></text>
+          <text x="32" y="385" fill="#64748B" font-family="'Space Grotesk', sans-serif" font-size="14">CLAIM LATENCY: <tspan fill="#9461FF" font-family="'JetBrains Mono', monospace" font-weight="700">Preemptive (~45.6ms lead)</tspan></text>
+        </g>
+      </g>
+    </svg>

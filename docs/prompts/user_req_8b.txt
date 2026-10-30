@@ -1,0 +1,188 @@
+# Resuming from a compaction
+
+You are continuing work on the task described above, but you have lost access to the full conversation history, and need to resume work efficiently using the progress summary below:
+
+# User Requests
+The following were user requests from the truncated conversation in chronological order:
+1. Implement Step 7 of PLAN.md: the contention gate, cost/benefit gate and holdout selector (Spec Stages 5 and 9). Still observation-only: decisions are computed, logged and stored, but NO reservation is created and NO cgroup is touched. Keep existing public signatures unless something is clearly wrong, and tell me if you change any.
+
+PART A: two small fixes
+1. `precompile projects add` must resolve --path to an absolute, user-expanded path before storing it.
+2. SIGHUP reload: the daemon reloads its project list on SIGHUP (add new watches, drop removed or disabled ones). After any `projects add/remove/enable/disable`, if the daemon PID file exists and the process is alive, the CLI sends SIGHUP and says so. Add a test. Document in README.
+
+PART B: schema migration v2 (store.py)
+Add migration v2 (via ALTER TABLE) adding to `predictions`: decision TEXT (values: 'would_arm', 'holdout', 'abstain_confidence', 'abstain_no_contention', 'abstain_cost', 'abstain_no_build_estimate'), contention_level REAL, benefit_s REAL, cost_s REAL. Add store.set_prediction_decision(prediction_id, decision, contention_level, benefit_s, cost_s) and a decision_counts(project_id) helper. migrate() must upgrade an existing v1 database (like the one from the Step 6 demo) with no data loss, and stay idempotent.
+
+PART C: gates.py
+1. Extend read_psi_cpu() to return some_avg10, some_avg60, some_avg300, some_total_us (and the "full" line if present). Add PSISampler: keeps a short history of (monotonic time, some_total_us) so it can also report recent_some_pct = delta stall time / delta wall time over the last >= 1 s. Injectable clock and reader for tests.
+2. contention_level = max(some_avg10, recent_some_pct), in percent. Contention is PRESENT if contention_level >= contention_threshold_pct (config, default 10.0). It is PREDICTED (treated as present) if some_avg10 is between 0.5 * threshold and threshold AND some_avg10 > some_avg60 (rising). Spec Stage 5: "contention is present or predicted".
+3. Cost/benefit model, in seconds of equivalent time. These are explicit PRIORS, labelled as such in code and README; Step 9 replaces the speedup prior with the measured benefit once enough holdouts exist:
+   p_hit        = recent hit-rate (last 10)
+   build_dur    = median duration of the project's last 10 'observed' builds; if there are 
+<truncated 4064 bytes>
+2. continue
+3. This is Step 7b: finish validating the arming gate against REAL CPU pressure. The code is done; the demo did not produce contention. Keep it small. No threshold or prior may be tuned to make a result look good; report what is measured.
+
+Background: PSI "some" only rises when runnable tasks outnumber CPUs. The last demo ran stress-ng --cpu 12 on 12 CPUs and the build still saw PSI around 1%. Also the PSI snapshot was taken before avg10 had time to ramp.
+
+1. Sample PSI continuously: in the daemon housekeeping tick, call the PSISampler every ~200 ms (injectable clock, no extra threads) so recent_some_pct reflects roughly the last second instead of the time since the previous save. Add a unit test with a fake clock showing that a sudden stall increase is visible within ~1 s.
+
+2. Create benchmarks/load.sh LEVEL, where LEVEL is idle, low, moderate or high. It starts stress-ng pinned with `taskset -c $CPUSET` (env var, default 0-1) using CPU hogs equal to: low = 1 per CPU in the set, moderate = 2 per CPU, high = 4 per CPU. Stop with a matching `load.sh stop`. Also make benchmarks/build_on_save.py accept --cpuset so the developer simulation (make and gcc) runs under the same taskset CPU set. The DAEMON must NOT be pinned to that set.
+
+3. Create benchmarks/calibrate_load.sh. For each of idle/low/moderate/high: start the load, wait 15 s for PSI avg10 to ramp, record PSI (avg10, avg60 and the recent_some_pct reading), then run 10 build cycles under the same cpuset and record the median and p95 build time. Print a table: level | PSI avg10 | recent_some_pct | median build s | p95 build s | slowdown vs idle. Save it to benchmarks/results/load_calibration.md. If PSI stays below 5% even at "high", say so plainly and show the evidence, because that would mean WSL2 under-reports pressure and we need to know.
+
+4. Rewrite benchmarks/run_demo_contention.sh to use the above: idle phase of 10 builds; then pinned load at "high" for 15 s (ramp wait) before 14 contention builds under the same cpuset. Print PSI at each phase and the median build time per phase, then `precompile status` with decision counts and the [arm?] log lines. The contention phase should now show would_arm and holdout decisions. If it does not, show why with numbers instead of changing anything.
+
+5. README.md: add a short "Benchmark load rules" s
+<truncated 520 bytes>
+4. Step 8a of PLAN.md: precompile/cgroup.py and precompile/reservation.py (Spec Stages 6, 7, 8). The daemon is NOT wired up to actuate in this step (that is 8b). Keep existing public signatures unless something is clearly wrong, and tell me if you change any.
+
+Root access: commands that need root run as `wsl -u root bash -c "..."` (no password needed). Everything else runs as the normal user. Tests that need root must skip with a clear message when not root and run for real under `wsl -u root`.
+
+PART A: diagnose the observed-build-duration discrepancy (report only, evidence first)
+In the Step 7b demo, the daemon's median 'observed' build duration fell from about 0.35 s (idle phase) to about 0.10 s (contention phase) while the harness measured 0.33 to 0.39 s for the same builds. Find out why. Extend the [build] log line to include the tracked process name, pid, ppid and cmdline[0]. Reproduce with the contention demo. Report which process was tracked in each phase and why. Fix it if the cause is a plain bug (for example tracking a child instead of the topmost matching ancestor). If the cause is polling misses of the top-level process, do NOT paper over it: report the miss counts and what would fix it. Show the evidence either way.
+
+PART B: environment recon as root (show raw output)
+   ps -p 1 -o comm=
+   cat /sys/fs/cgroup/cgroup.controllers
+   cat /sys/fs/cgroup/cgroup.subtree_control
+   cat /proc/self/cgroup
+   ls /sys/fs/cgroup
+   Run `sleep 30 &` as the normal user and show its /proc/<pid>/cgroup
+Say whether cpu is enabled in the root subtree_control and where ordinary processes live in the hierarchy.
+
+PART C: cgroup.py (CgroupController)
+Design rule: cpu.weight is hierarchical; a group's weight only competes with its SIBLINGS. Reservation groups therefore must be placed where they compete with ordinary work: as direct children of the cgroup v2 root, named `precompile-res-<id>` (this also matches the matcher's prefix check). Make the parent path configurable (default /sys/fs/cgroup) and document this rule in README.md and the module docstring.
+1. Interface (so tests can use an in-memory fake): ensure_cpu_controller(), create_group(name, weight), set_weight(name, weight), move_pid(name, pid) and move_pids(name, pids), list_procs(name), is_populated(name) (read cgroup.events: populated 0/
+<truncated 6632 bytes>
+5.    The timing diagnostic hung for 2 hours. The cause is the polling loop: a finished child stays a zombie in /proc until wait() is called, so reading /proc/<pid>/comm never fails and the loop never ends. Use p.poll() in the loop condition, or stop when the state field in /proc/<pid>/stat is 'Z'. From now on, give every diagnostic command a hard timeout (for example `timeout 60`) and never run an unbounded loop. Please continue Step 8a from where you were: finish Part A (you may use the [build] log lines and the builds table you already collected; the extra timing experiment is optional), then Parts B to F and the tests. When done, show me: the Part A findings, the Part B recon output, the proof test's printed CPU times and ratios, the test summary, the final cgroup.py and reservation.py, and any test you changed or loosened.
+6. Step 8b of PLAN.md: make the daemon actuate, fix three problems found in review, and run the first real A/B smoke test. Keep existing public signatures unless something is clearly wrong, and tell me if you change any.
+
+Rules for this step: root work runs via `wsl -u root bash -c "..."`. EVERY diagnostic or benchmark command must have a hard timeout (for example `timeout 120`) and long runs go in the background writing to a log file that you poll with bounded waits. Never run an unbounded loop. Cross-check that no `precompile-res-*` directories are left in /sys/fs/cgroup at the end of each run.
+
+PART A: three fixes (each with a test)
+1. Watcher exec detection: for PIDs first seen within the last ~0.5 s, re-inspect exe on every scan; if the executable changed (exec in place), emit a new ProcessInfo for that PID (mark exec_of_known_pid=True). Test deterministically: `bash -c 'sleep 0.2; exec <fake-gcc> 0.3'` and `taskset -c 0 <fake-gcc> 0.3` must both be detected and matched as the tool. Keep the per-scan cost low and report the scan-cost stats before and after.
+2. Build timing: a tracked build's duration = (exit time) - (the process's own start time from /proc stat, t_start_monotonic). Detect exit with os.pidfd_open and a select.poll over pidfds in one small thread (with a wake-up pipe), so end times are accurate to a few ms. Fall back to /proc polling if pidfd_open is unavailable. Test: a fake tool that runs a known 0.5 s must be recorded as 0.5 s within 30 ms, both when the daemon handles the spawn immediately and when it handles it late.
+3. Claim/tick race: a reservation must not close for "empty group" until the move into the group has COMPLETED (add a move_done flag set after move_pids and the late-child re-scan). Test deterministically with the claim_interleave_hook or an equivalent hook: call tick() between "state set to CLAIMED" and "move complete" and assert the reservation stays CLAIMED and the group still exists.
+Also: prune completed reservations from memory after persisting them to the store, keeping only the last 50.
+
+PART B: daemon actuation (daemon.py, cli.py)
+1. `precompile daemon --actuate` (default stays observation-only). With --actuate but no root or no writable cgroup, log a clear warning and continue in observation-only mode (spec Stage 10). At start, when actuating, run c
+<truncated 5643 bytes>
+
+<summary>
+### 1. Task Overview
+- **Goal:** Implement Step 8b of `PLAN.md`: Make the PreCompile daemon actuate cgroup reservations, fix three architectural issues found in review (watcher exec detection, sub-ms build timing with `os.pidfd_open`, and claim/tick race with `move_done`), calibrate a heavier workload (`benchmarks/sample_project_heavy`), and execute the first real A/B smoke test under load.
+- **Constraints & Rules:**
+  - Root access via `wsl -u root bash -c "..."` (no password).
+  - Every diagnostic/benchmark command MUST have a hard timeout (`timeout 120` or similar). Long runs must run in the background writing to a log file and be polled with bounded waits. Never run an unbounded loop.
+  - Cross-check that no `precompile-res-*` directories are left in `/sys/fs/cgroup` at the end of each run.
+  - Keep existing public signatures unless clearly wrong; report any changes.
+  - Do NOT start Step 9.
+  - Reporting sequence at the end: Paste the heavy-workload slowdown table first (if < 2x slowdown, stop before Part E); then paste A/B smoke table, test summaries, and say "next prompt" for Step 9.
+
+---
+
+### 2. Progress
+- **Completed in Step 8b:**
+  1. **Watcher Exec Detection (Part A.1):**
+     - Updated `precompile/watcher.py`:
+       - `ProcessInfo.exec_of_known_pid: bool = False`.
+       - Added `_first_seen: Dict[int, float]` to `ProcessWatcher`.
+       - In `_scan_proc`, processes first seen within the last $\le 0.5\text{s}$ have their `/proc/<pid>/exe` link checked; if changed, a new `ProcessInfo` is emitted with `exec_of_known_pid=True`.
+  2. **Claim/Tick Race & Pruning (Part A.3):**
+     - Updated `precompile/reservation.py`:
+       - Added `move_done: bool = False` to `ReservationRecord`.
+       - Added `move_interleave_hook` parameter to `ReservationManager.__init__`.
+       - In `try_claim`, `res.move_done = True` is only set after both `move_pids` and late-fork descendant re-scans complete.
+       - In `tick()`, if `res.state == CLAIMED` and `not res.move_done`, `tick()` skips the emptiness check.
+       - Pruned completed reservations in `_release_reservation` to retain only the newest 50 in memory.
+
+- **In Progress / Next to Implement:**
+  1. **Build Timing via `pidfd_open` (Part A.2):**
+     - Need to implement `ProcessExitMonitor` / `pidfd_open` loop with `select.poll` in `precompile/daemon.py` to record duration as `t_exit_mono - tb.t_start_mono`, falling back to `/proc` polling if `pidfd_open` is unavailable.
+  2. **Daemon Actuation Wiring (Part B):**
+     - Add `--actuate`, `--holdout-prob P`, `--weight W` flags to `precompile/cli.py` and `AppConfig`.
+     - In `precompile/daemon.py`:
+       - Connect `ReservationManager` with `actuate` flag.
+       - If `actuate` and root: cleanup stale cgroups at start.
+       - On `would_arm`: call `reservation_manager.arm()`, set `store.set_prediction_armed(pred_id, True)`, update decision to `'armed'`, log `[arm]`.
+       - On spawn: check PID starttime ticks (PID reuse guard), call `reservation_manager.try_claim()`, log `[claim]`.
+       - In housekeeping: call `reservation_manager.tick()`, persist completed reservations to store via `record_reservation`, keep watcher intensified if any reservation is active or window is open.
+       - Build rows: `condition = 'reserved'` if claimed, `'holdout'` if holdout, else `'observed'`.
+       - Shutdown: call `reservation_manager.cancel_all()`.
+       - Update `precompile status` to display reservation summary.
+  3. **Heavy Workload Generator & Calibration (Part C):**
+     - `benchmarks/gen_heavy.py` generating `benchmarks/sample_project_heavy/big.c` (incremental build ~2.0s at idle, calibrated with `--target-seconds 2.0`).
+     - Update `benchmarks/build_on_save.py` with `--edit-file` and `--log-jsonl`.
+     - Calibrate load on heavy project with `benchmarks/calibrate_load.sh`.
+  4. **Tests (Part D):**
+     - Test Part A fixes in `tests/test_watcher.py`, `tests/test_daemon.py`, and `tests/test_reservation.py`.
+     - Test actuation, non-root fallback, live root actuation tests, PID reuse guard, CLI reservations/cleanup.
+  5. **A/B Smoke Test (Part E):**
+     - Create `benchmarks/ab_smoke.sh` and run 60 cycles under `load=high` on `~/precompile-demo-heavy`.
+
+---
+
+### 3. Key Findings & Decisions
+- **`os.pidfd_open` in WSL2:** Tested and confirmed working in WSL2 Python 3.12 (`events: [(3, 1)]`, 0.205s wait for 0.2s sleep). Sub-millisecond process exit detection is fully supported.
+- **Accurate Build Duration Formula:** Duration must strictly be `t_exit_mono - tb.t_start_mono` (where `t_start_mono` is from `/proc/<pid>/stat` field 22), avoiding latency induced by daemon batch processing delay.
+- **PID-reuse Guard:** Before `try_claim` moves a process into a reservation cgroup, re-read `/proc/<pid>/stat` field 22 and verify it matches `proc.starttime_ticks`.
+
+---
+
+### 4. Active Context
+- **Workspace:** `c:\Os Project` (`/mnt/c/Os Project` in WSL).
+- **Modified files so far:**
+  - `precompile/watcher.py` (exec detection and `_first_seen` tracking).
+  - `precompile/reservation.py` (`move_done` flag, `move_interleave_hook`, 50-item pruning).
+  - `precompile/store.py` (migration v3, `reservations` table, `set_prediction_armed`, `record_reservation`).
+  - `precompile/cli.py` (`reservations` and `cleanup` subcommands).
+
+---
+
+### 5. Next Steps (In Priority Order)
+1. **Implement Build Timing in `precompile/daemon.py`:**
+   - Add `ProcessExitMonitor` using `os.pidfd_open` and `select.poll` with an internal wake pipe (`os.pipe()`).
+   - Store `tb.t_start_mono` and compute `duration = t_exit_mono - tb.t_start_mono`.
+   - Fall back to `/proc` polling in housekeeping loop if `pidfd_open` fails.
+2. **Wire Actuation in `precompile/daemon.py` & `precompile/cli.py`:**
+   - Add `--actuate`, `--holdout-prob`, `--weight` options.
+   - Implement arming, PID-reuse check, claiming, reservation tick, and store persistence.
+   - Set build condition (`reserved`, `holdout`, `observed`).
+   - Ensure clean shutdown (`cancel_all()`).
+3. **Implement Heavy Workload (`benchmarks/gen_heavy.py` & `sample_project_heavy`):**
+   - Add `--edit-file` and `--log-jsonl` to `benchmarks/build_on_save.py`.
+   - Generate `big.c` calibrated to ~2.0s compile time.
+   - Run `calibrate_load.sh` on heavy project; verify slowdown under high load $\ge 2\times$.
+4. **Implement Tests (`tests/test_daemon.py`, `tests/test_reservation.py`, etc.):**
+   - Part A tests (exec detection, accurate timing within 30ms, claim/tick race).
+   - Root tests (actuation, live cgroups, PID reuse, SIGTERM cleanup).
+   - Ensure all normal tests pass and root tests pass.
+5. **Run A/B Smoke Test (`benchmarks/ab_smoke.sh`):**
+   - Run 60 cycles on `~/precompile-demo-heavy` with `actuate=True` and `holdout_prob=0.5`.
+   - Perform Mann-Whitney U test and verify claim latencies and zero leftover cgroups.
+6. **Report Deliverables:**
+   - Paste heavy workload table first.
+   - Paste A/B smoke table and say "next prompt" for Step 9.
+
+---
+
+### 6. Commitments & Constraints
+- Always enforce hard timeouts (`timeout 120` or similar) on shell and python commands.
+- Never run unbounded polling loops; always poll log files with finite sleep/iterations.
+- Verify zero `precompile-res-*` directories remain in `/sys/fs/cgroup`.
+- Do not tune weights, priors, or thresholds to manipulate benchmark results.
+- Do not start Step 9.
+</summary>
+
+You have the 1 following artifacts written to the artifacts directory:
+
+[ARTIFACT: agent]
+Path: file:///C:/Users/yakka/.gemini/antigravity/brain/7b1e8da4-d3a1-4752-bccb-9c0e6f144d06/.agents/agents/code-implementer/agent.md
+Last Edited: 2026-10-18T11:27:44Z
+
+# Conversation Logs
+Start with the compact transcript; if a step has `truncated_fields`, read only that specific line in `transcript_full.jsonl`:
+- `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl`
+- `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript_full.jsonl`

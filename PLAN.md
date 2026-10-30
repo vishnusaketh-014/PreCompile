@@ -7,7 +7,7 @@ This roadmap outlines the 11 development steps to implement, test, and experimen
 ## Step 1: Recon & Repository Skeleton
 - **Deliverable:**
   - Complete environment inspection across Linux subsystems (cgroup v2, CPU PSI, inotify, toolchains).
-  - Specification summary (`SPEC_SUMMARY.md`) with components, equations, state machine, and validation protocols.
+  - Specification summary (`docs/SPEC_SUMMARY.md`) with components, equations, state machine, and validation protocols.
   - Python 3 skeleton package (`precompile/`) with all 11 modules mapped to Stages 1–10, typed signatures, and `tests/test_skeleton.py`.
   - Core design decisions documented in `README.md`.
 - **How to Verify:**

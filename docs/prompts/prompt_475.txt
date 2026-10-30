@@ -1,0 +1,46 @@
+<USER_REQUEST>
+Step 8b of PLAN.md: make the daemon actuate, fix three problems found in review, and run the first real A/B smoke test. Keep existing public signatures unless something is clearly wrong, and tell me if you change any.
+
+Rules for this step: root work runs via `wsl -u root bash -c "..."`. EVERY diagnostic or benchmark command must have a hard timeout (for example `timeout 120`) and long runs go in the background writing to a log file that you poll with bounded waits. Never run an unbounded loop. Cross-check that no `precompile-res-*` directories are left in /sys/fs/cgroup at the end of each run.
+
+PART A: three fixes (each with a test)
+1. Watcher exec detection: for PIDs first seen within the last ~0.5 s, re-inspect exe on every scan; if the executable changed (exec in place), emit a new ProcessInfo for that PID (mark exec_of_known_pid=True). Test deterministically: `bash -c 'sleep 0.2; exec <fake-gcc> 0.3'` and `taskset -c 0 <fake-gcc> 0.3` must both be detected and matched as the tool. Keep the per-scan cost low and report the scan-cost stats before and after.
+2. Build timing: a tracked build's duration = (exit time) - (the process's own start time from /proc stat, t_start_monotonic). Detect exit with os.pidfd_open and a select.poll over pidfds in one small thread (with a wake-up pipe), so end times are accurate to a few ms. Fall back to /proc polling if pidfd_open is unavailable. Test: a fake tool that runs a known 0.5 s must be recorded as 0.5 s within 30 ms, both when the daemon handles the spawn immediately and when it handles it late.
+3. Claim/tick race: a reservation must not close for "empty group" until the move into the group has COMPLETED (add a move_done flag set after move_pids and the late-child re-scan). Test deterministically with the claim_interleave_hook or an equivalent hook: call tick() between "state set to CLAIMED" and "move complete" and assert the reservation stays CLAIMED and the group still exists.
+Also: prune completed reservations from memory after persisting them to the store, keeping only the last 50.
+
+PART B: daemon actuation (daemon.py, cli.py)
+1. `precompile daemon --actuate` (default stays observation-only). With --actuate but no root or no writable cgroup, log a clear warning and continue in observation-only mode (spec Stage 10). At start, when actuating, run cgroup cleanup_stale().
+2. New CLI/config options needed for experiments: --holdout-prob P, --weight W (clamped to the cap).
+3. On decision 'would_arm' and actuation available: ReservationManager.arm(...) with the prediction's window, tool profile, weight and median observed build duration (for the max lifetime). Add store.set_prediction_armed so the prediction row gets armed=True, and record the decision as 'armed' in that case. Log: [arm]    demo ARMED res=<id> window=[lo, hi]s weight=500.
+4. On every matching spawn (after resolve_topmost_ancestor) for a project with an ARMED or ACTIVE reservation, call try_claim with the process table. Before moving, re-check the PID's starttime in /proc still equals ProcessInfo.starttime_ticks (guards against PID reuse). Early claims (ARMED -> CLAIMED) are allowed. Log: [claim]  demo res=<id> pid=<pid> latency=<ms>ms moved=<n> pids, original=<cgroup>.
+5. Housekeeping tick: call reservation_manager.tick(); keep the watcher intensified while any reservation is ACTIVE or any prediction window is open; persist each terminal reservation with store.record_reservation (final_state, claim latency, pid, group, original cgroup, reason).
+6. Build rows: condition = 'reserved' if the build's top process was claimed; 'holdout' if its prediction was flagged holdout; otherwise 'observed'. Use the accurate duration from Part A.2.
+7. Save suppression during a build keeps working for claimed builds.
+8. Shutdown (SIGTERM/SIGINT): cancel_all, which releases groups and moves any remaining processes back to their original cgroup; nothing may be left in /sys/fs/cgroup.
+9. `precompile status` shows reservation counts per final state and the mean/median claim latency.
+
+PART C: heavier workload
+The 0.3 s sample build is barely slowed by contention (1.08x to 1.18x measured), so the mechanism has almost nothing to improve. Create benchmarks/gen_heavy.py and a heavy sample project (benchmarks/sample_project_heavy) whose single-file incremental rebuild takes about 2 s at idle: a generated big.c with N functions compiled with -O2, with N calibrated automatically (--target-seconds 2.0, timing 3 runs). build_on_save.py gets --edit-file and a JSONL per-cycle log (cycle, t_save_wall, delay_s, build_wall_s, exit_status). Re-run benchmarks/calibrate_load.sh on the heavy project and show the new slowdown table (idle/low/moderate/high). If high load still does not slow the heavy build by at least 2x, say so with the numbers and stop here without running Part E.
+
+PART D: tests (non-root unless noted)
+   a-c: the three Part A fixes
+   d. --actuate without root falls back to observation-only with a warning and no exception
+   e. [root] real daemon, in-process, actuate=True, gates forced open (contention and cost gates disabled, holdout 0): arm -> spawn fake-gcc (runs 1 s) -> while it runs, /proc/<pid>/cgroup contains precompile-res- -> after exit the group is gone, the reservations row is CLOSED with a claim latency, and the build row has condition 'reserved'
+   f. [root] arm then no build: EXPIRED, group removed, no leftovers
+   g. [root] a build that forks descendants: all existing descendants are moved and later children inherit the group
+   h. [root] SIGTERM during a CLAIMED build: the group is removed and the process is back in its original cgroup
+   i. [root] stale `precompile-res-*` groups are cleaned at daemon start
+   j. PID-reuse guard (fake backend): a pid whose starttime changed is NOT moved
+   k. CLI: `reservations` and `cleanup` smoke tests
+   All existing tests must still pass. Root-only tests run via `wsl -u root bash -c "cd '/mnt/c/Os Project' && PYTHONPATH=. timeout 300 python3 -m unittest <modules> -v"`.
+
+PART E: first real A/B smoke test (NOT the final evaluation)
+Create benchmarks/ab_smoke.sh. On ~/precompile-demo-heavy (native ext4): start `precompile daemon --actuate --holdout-prob 0.5` as root (daemon UNPINNED), apply load=high pinned to cpuset 0-1 and wait 15 s for PSI to ramp, then run 60 cycles of build_on_save.py pinned to the same cpuset (delay 1.8 +/- 0.1 s). The first ~10 cycles are warm-up (no arming); after that about half the qualifying saves are armed ('reserved') and half are holdouts, randomly interleaved. Afterwards build a table from the harness JSONL joined with the daemon's builds table (match each cycle to the build row with the nearest start time): condition | n | median build s | p95 | mean. Add a Mann-Whitney U test between reserved and holdout (pure Python, normal approximation with tie correction, report U, z and p). Also report: mean claim latency, how many reservations were claimed vs expired, and any build that was not boosted although it was armed (with the reason). Run it in the background with a log and bounded polling. Report exactly what you measure, including "no significant difference" if that is what happens. Do not tune the weight, thresholds or priors to improve the numbers.
+
+Run python3 -m unittest discover -s tests -v as the normal user and the root-only tests as root. Update Step 8b status in PLAN.md and README.md. Tell me about any test you changed or loosened and why. Show me: the Part A test evidence, the heavy-workload slowdown table, the full test summaries, the A/B smoke table with the Mann-Whitney result and the claim-latency numbers, the leftover-cgroup check, and the final daemon.py. Then stop. Do not start Step 9.
+The run is long,When it finishes, paste the heavy-workload table first, because if heavy builds aren’t slowed by load, the A/B run won’t happen. Then paste the A/B table and say “next prompt” for step 9, the benefit estimator.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-18T22:27:29+05:30.
+</ADDITIONAL_METADATA>

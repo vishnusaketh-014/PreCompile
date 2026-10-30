@@ -187,5 +187,8 @@ The following files and paths outside the repository directory are utilized or m
 
 ## Documentation
 
-- [SPEC_SUMMARY.md](SPEC_SUMMARY.md): Complete architecture, mathematical formulations, state machine diagrams, and validation protocol.
+- [docs/SPEC_SUMMARY.md](docs/SPEC_SUMMARY.md): Complete architecture, mathematical formulations, state machine diagrams, and validation protocol.
+- [docs/DASHBOARD.md](docs/DASHBOARD.md): Web telemetry dashboard and visual monitoring guide.
 - [PLAN.md](PLAN.md): Step-by-step roadmap for all 11 implementation phases and their verification instructions.
+- [RESULTS.md](RESULTS.md): Empirical benchmark evaluation results, slowdown analyses, and statistical hypothesis tests.
+- [docs/reports/](docs/reports/): Architecture and specification reports (IDF-B specification PDF and benchmark reports).
